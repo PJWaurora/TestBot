@@ -1,0 +1,31 @@
+{
+  "self_id": 1,
+  "user_id": 1,
+  "time": 1,
+  "message_id": 1,
+  "message_seq": 1,
+  "real_id": 1,
+  "real_seq": "1",
+  "message_type": "group",
+  "sender": {
+    "user_id": 1,
+    "nickname": "用户昵称",
+    "card": "群昵称",
+    "role": "member"
+  },
+  "raw_message": "文字消息内容",
+  "font": 14,
+  "sub_type": "normal",
+  "message": [
+    {
+      "type": "text",
+      "data": {
+        "text": "文字消息内容"
+      }
+    }
+  ],
+  "message_format": "array",
+  "post_type": "message",
+  "group_id": 613689332,
+  "group_name": "小刀小盾就业中心"
+}

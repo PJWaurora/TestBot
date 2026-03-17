@@ -1,0 +1,35 @@
+{
+  "self_id": 1,
+  "user_id": 1,
+  "time": 1,
+  "message_id": 1,
+  "message_seq":1,
+  "real_id": 1,
+  "real_seq": "1",
+  "message_type": "group",
+  "sender": {
+    "user_id": 1,
+    "nickname": "nickname",
+    "card": "群昵称", 
+    "role": "成员"
+  },
+  "raw_message": "[CQ:image,summary=&#91;动画表情&#93;,file=1.jpg,sub_type=1,url=https://multimedia.nt.qq.com.cn,file_size=823665]",
+  "font": 14,
+  "sub_type": "normal",
+  "message": [
+    {
+      "type": "image",
+      "data": {
+        "summary": "[动画表情]",
+        "file": "1.jpg",
+        "sub_type": 1,
+        "url": "https://multimedia.nt.qq.com.cn",
+        "file_size": "823665"
+      }
+    }
+  ],
+  "message_format": "array",
+  "post_type": "message",
+  "group_id": 1,
+  "group_name": "群聊昵称"
+}
