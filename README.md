@@ -27,16 +27,6 @@ TestBot 是一个[请补充项目的核心目的和功能]。
 ## 项目结构
 ```
 TESTBOT/
-├── gateway-go/          # Go 语言编写的网关层 (处理 NapCatQQ 核心连接)
-│   ├── main.go          # 程序入口
-│   ├── config/          # 配置文件处理
-│   ├── handler/         # HTTP/WebSocket 消息路由与分发
-│   │   ├── router.go     # 路由分发逻辑
-│   │   ├── message.go    # 消息事件处理
-│   │   └── image.go      # 图片事件处理
-│   ├── client/          # 转发请求给 Python 服务的客户端代码
-│   └── go.mod
-│
 ├── brain-python/        # Python 语言编写的 AI 逻辑层
 │   ├── main.py          # FastApi/Flask 入口
 │   ├── core/
@@ -47,6 +37,34 @@ TESTBOT/
 │   │   └── memory.py    # 长短期记忆管理
 │   ├── requirements.txt
 │   └── .env             # 存放 API Keys
+│
+├── gateway-go/          # Go 语言编写的网关层 (处理 NapCatQQ 核心连接)
+│   ├── main.go          # 程序入口
+│   ├── config/          # 配置文件处理
+│   ├── handler/         # HTTP/WebSocket 消息路由与分发
+│   │   ├── router.go     # 路由分发逻辑
+│   │   ├── common/          # 各类事件处理函数
+│   │   │   ├── json.go     # JSON事件处理
+│   │   │   ├── video.go    # 视频事件处理
+│   │   │   ├── text.go    # 消息事件处理
+│   │   │   └── image.go      # 图片事件处理
+│   │   ├── group/
+│   │   │   ├── reply.go    # 回复事件处理
+│   │   │   └── at.go      # @事件处理
+│   │   └── models/
+│   │       └── base.go   # 事件数据结构定义
+│   ├── client/          # 转发请求给 Python 服务的客户端代码
+│   └── go.mod
+├── docs/
+│   └── roadmap.md       # 开发路线图
+│
+├── json_example/
+│   ├──group/
+│   │   ├──json_example.json
+│   │   ├──text_example.json
+│   │   └──image_example.json
+│   └── private/
+│       └──text_private_example.json
 │
 ├── database/            # 数据库相关
 │   ├── init.sql         # PostgreSQL + pgvector 初始化脚本
