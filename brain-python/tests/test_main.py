@@ -195,8 +195,12 @@ def test_outbox_no_repository_returns_empty_pull_and_unacked_ack() -> None:
 
     assert pull_response.status_code == 200
     assert pull_response.json() == []
-    assert ack_response.status_code == 200
-    assert ack_response.json() == {"acked": 0}
+    assert ack_response.status_code == 503
+    assert ack_response.json()["detail"] == {
+        "error": "outbox_ack_incomplete",
+        "acked": 0,
+        "expected": 1,
+    }
 
 
 class RecordingCursor:

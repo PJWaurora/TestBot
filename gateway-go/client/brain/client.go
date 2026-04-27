@@ -230,6 +230,22 @@ func (client *Client) AckOutbox(ctx context.Context, ack OutboxAck) error {
 		return statusError(resp)
 	}
 
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read brain outbox ack response: %w", err)
+	}
+	if strings.TrimSpace(string(responseBody)) == "" {
+		return fmt.Errorf("brain outbox ack response is empty")
+	}
+
+	var ackResponse OutboxAckResponse
+	if err := json.Unmarshal(responseBody, &ackResponse); err != nil {
+		return fmt.Errorf("decode brain outbox ack response: %w", err)
+	}
+	if ackResponse.Acked != len(ack.IDs) {
+		return fmt.Errorf("brain outbox ack confirmed %d/%d ids", ackResponse.Acked, len(ack.IDs))
+	}
+
 	return nil
 }
 
@@ -548,4 +564,8 @@ type OutboxAck struct {
 	IDs     []int64 `json:"ids"`
 	Success bool    `json:"success"`
 	Error   string  `json:"error,omitempty"`
+}
+
+type OutboxAckResponse struct {
+	Acked int `json:"acked"`
 }

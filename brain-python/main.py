@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 
 from schemas import (
     BrainResponse,
@@ -47,4 +47,13 @@ def outbox_pull(limit: int = 10) -> list[dict[str, object]]:
 @app.post("/outbox/ack", response_model=OutboxAckResponse)
 def outbox_ack(request: OutboxAckRequest) -> OutboxAckResponse:
     acked = ack_outbox(ids=request.ids, success=request.success, error=request.error)
+    if request.ids and acked != len(request.ids):
+        raise HTTPException(
+            status_code=503,
+            detail={
+                "error": "outbox_ack_incomplete",
+                "acked": acked,
+                "expected": len(request.ids),
+            },
+        )
     return OutboxAckResponse(acked=acked)
