@@ -1,4 +1,31 @@
-*.db
+.DS_Store
+
+# Environment and local virtualenvs
+.env
+.env.*
+!.env.example
+!.env.*.example
+.venv/
+
+# Python
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+coverage/
+htmlcov/
+
+# Go local caches
 .gopath/
 .gocache/
 .home/
+go.work
+
+# Local data and volumes
+*.db
+data/
+volumes/
+tmp/
+
+# Tooling
+.codex/
