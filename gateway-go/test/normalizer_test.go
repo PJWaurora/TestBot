@@ -137,6 +137,59 @@ func TestNormalizeReplyAtTextSegments(t *testing.T) {
 	}
 }
 
+func TestNormalizeAtAllRoutesToAt(t *testing.T) {
+	data := []byte(`{
+		"post_type": "message",
+		"message_type": "group",
+		"user_id": 9,
+		"group_id": 8,
+		"message": [
+			{"type": "at", "data": {"qq": "all"}},
+			{"type": "text", "data": {"text": " announcement"}}
+		]
+	}`)
+
+	message, err := normalizer.NormalizeBytes(data)
+	if err != nil {
+		t.Fatalf("normalize at-all message: %v", err)
+	}
+
+	if message.PrimaryType() != "at" {
+		t.Fatalf("primary type = %q, want at", message.PrimaryType())
+	}
+	if !message.AtAll {
+		t.Fatal("AtAll = false, want true")
+	}
+	if len(message.AtUserIDs) != 0 {
+		t.Fatalf("at users = %v, want empty for at-all", message.AtUserIDs)
+	}
+	if message.Text != " announcement" {
+		t.Fatalf("text = %q, want ' announcement'", message.Text)
+	}
+}
+
+func TestNormalizeUsesJSONNumberForLargeSegmentID(t *testing.T) {
+	const largeID int64 = 9007199254740993
+	data := []byte(`{
+		"post_type": "message",
+		"message_type": "group",
+		"user_id": 9,
+		"group_id": 8,
+		"message": [
+			{"type": "at", "data": {"qq": 9007199254740993}}
+		]
+	}`)
+
+	message, err := normalizer.NormalizeBytes(data)
+	if err != nil {
+		t.Fatalf("normalize large-id message: %v", err)
+	}
+
+	if len(message.AtUserIDs) != 1 || message.AtUserIDs[0] != largeID {
+		t.Fatalf("at users = %v, want [%d]", message.AtUserIDs, largeID)
+	}
+}
+
 func TestNormalizeStringMessageFallback(t *testing.T) {
 	data := []byte(`{
 		"post_type": "message",

@@ -1,6 +1,9 @@
 package models
 
-import "encoding/json"
+import (
+	"bytes"
+	"encoding/json"
+)
 
 type BaseEvent struct {
 	SelfID        int64           `json:"self_id,omitempty"`
@@ -34,7 +37,9 @@ type MessageSegments []MessageSegment
 
 func (segments *MessageSegments) UnmarshalJSON(data []byte) error {
 	var arraySegments []MessageSegment
-	if err := json.Unmarshal(data, &arraySegments); err == nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&arraySegments); err == nil {
 		*segments = arraySegments
 		return nil
 	}

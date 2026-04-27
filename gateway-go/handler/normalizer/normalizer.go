@@ -1,8 +1,10 @@
 package normalizer
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 
@@ -25,6 +27,7 @@ type IncomingMessage struct {
 	JSONMessages     []JSONContent
 	Videos           []VideoContent
 	AtUserIDs        []int64
+	AtAll            bool
 	ReplyToMessageID int64
 	UnknownTypes     []string
 	Segments         []models.MessageSegment
@@ -51,7 +54,9 @@ type VideoContent struct {
 
 func NormalizeBytes(data []byte) (IncomingMessage, error) {
 	var event models.BaseEvent
-	if err := json.Unmarshal(data, &event); err != nil {
+	decoder := json.NewDecoder(bytes.NewReader(data))
+	decoder.UseNumber()
+	if err := decoder.Decode(&event); err != nil {
 		return IncomingMessage{}, fmt.Errorf("unmarshal base event: %w", err)
 	}
 
@@ -96,7 +101,9 @@ func NormalizeEvent(event models.BaseEvent) IncomingMessage {
 			jsonMessage := JSONContent{Raw: raw}
 			if raw != "" {
 				var parsed map[string]interface{}
-				if err := json.Unmarshal([]byte(raw), &parsed); err == nil {
+				decoder := json.NewDecoder(strings.NewReader(raw))
+				decoder.UseNumber()
+				if err := decoder.Decode(&parsed); err == nil {
 					jsonMessage.Parsed = parsed
 				}
 			}
@@ -109,6 +116,10 @@ func NormalizeEvent(event models.BaseEvent) IncomingMessage {
 			})
 
 		case "at":
+			if segmentString(segment, "qq") == "all" {
+				message.AtAll = true
+				continue
+			}
 			if id, ok := segmentInt64(segment, "qq"); ok {
 				message.AtUserIDs = append(message.AtUserIDs, id)
 			}
@@ -131,7 +142,7 @@ func (message IncomingMessage) PrimaryType() string {
 	switch {
 	case message.ReplyToMessageID != 0:
 		return "reply"
-	case len(message.AtUserIDs) > 0:
+	case message.AtAll || len(message.AtUserIDs) > 0:
 		return "at"
 	case len(message.TextSegments) > 0:
 		return "text"
@@ -197,6 +208,9 @@ func segmentInt64(segment models.MessageSegment, key string) (int64, bool) {
 	case int:
 		return int64(typed), true
 	case float64:
+		if typed < float64(math.MinInt64) || typed > float64(math.MaxInt64) || typed != math.Trunc(typed) {
+			return 0, false
+		}
 		return int64(typed), true
 	case json.Number:
 		parsed, err := typed.Int64()
