@@ -1,11 +1,14 @@
 package group
 
 import (
-	"gateway/handler/models"
 	"log"
+
+	"gateway/client/napcat"
+	"gateway/handler/normalizer"
 )
 
-func HandleAt(event models.BaseAtEvent) {
-	log.Println("处理@事件:", event)
-	// 这里你可以添加处理@事件的逻辑
+func HandleAt(message normalizer.IncomingMessage) []napcat.Action {
+	log.Printf("处理@事件: user_id=%d group_id=%d at=%v at_all=%t text=%q", message.UserID, message.GroupID, message.AtUserIDs, message.AtAll, message.Text)
+	// 后续可在这里判断是否 @ 到机器人账号。
+	return nil
 }
