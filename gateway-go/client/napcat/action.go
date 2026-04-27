@@ -21,6 +21,24 @@ type Response struct {
 	Echo    string      `json:"echo,omitempty"`
 }
 
+func (response Response) Success() bool {
+	status := strings.ToLower(strings.TrimSpace(response.Status))
+	return response.RetCode == 0 && (status == "" || status == "ok" || status == "success")
+}
+
+func (response Response) ErrorText() string {
+	for _, text := range []string{response.Message, response.Wording, response.Status} {
+		text = strings.TrimSpace(text)
+		if text != "" {
+			return text
+		}
+	}
+	if response.RetCode != 0 {
+		return fmt.Sprintf("retcode %d", response.RetCode)
+	}
+	return "unknown error"
+}
+
 type SendGroupMessageParams struct {
 	GroupID int64  `json:"group_id"`
 	Message string `json:"message"`

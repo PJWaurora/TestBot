@@ -5,7 +5,7 @@ from modules.registry import DeterministicModuleRegistry
 from modules.summary import SummaryModule
 from schemas import BrainResponse, ChatRequest
 from services.chat import reset_chat_repository, set_chat_repository
-from services.outbox import reset_outbox_repository, set_outbox_repository
+from services.outbox import PostgresOutboxRepository, reset_outbox_repository, set_outbox_repository
 from services.persistence import PostgresChatRepository, _conversation_key, _request_metadata, _request_text
 
 
@@ -185,7 +185,7 @@ def test_outbox_ack_passes_failure_error_to_repository() -> None:
     ]
 
 
-def test_outbox_no_repository_returns_empty_pull_and_accepted_ack() -> None:
+def test_outbox_no_repository_returns_empty_pull_and_unacked_ack() -> None:
     set_outbox_repository(None)
     try:
         pull_response = client.get("/outbox/pull")
@@ -196,7 +196,78 @@ def test_outbox_no_repository_returns_empty_pull_and_accepted_ack() -> None:
     assert pull_response.status_code == 200
     assert pull_response.json() == []
     assert ack_response.status_code == 200
-    assert ack_response.json() == {"acked": 1}
+    assert ack_response.json() == {"acked": 0}
+
+
+class RecordingCursor:
+    def __init__(self) -> None:
+        self.executions: list[tuple[str, tuple[object, ...]]] = []
+        self.rowcount = 1
+
+    def __enter__(self) -> "RecordingCursor":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def execute(self, sql: str, params: tuple[object, ...]) -> None:
+        self.executions.append((sql, params))
+
+    def fetchall(self) -> list[dict[str, object]]:
+        return []
+
+
+class RecordingConnection:
+    def __init__(self, cursor: RecordingCursor) -> None:
+        self.cursor_instance = cursor
+
+    def __enter__(self) -> "RecordingConnection":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def cursor(self) -> RecordingCursor:
+        return self.cursor_instance
+
+
+class RecordingPostgresOutboxRepository(PostgresOutboxRepository):
+    def __init__(self, *args: object, cursor: RecordingCursor, **kwargs: object) -> None:
+        super().__init__("postgresql://example", *args, **kwargs)
+        self.cursor_instance = cursor
+
+    def _connect(self, **kwargs: object) -> RecordingConnection:
+        return RecordingConnection(self.cursor_instance)
+
+
+def test_postgres_outbox_pull_uses_configured_lease_seconds() -> None:
+    cursor = RecordingCursor()
+    repository = RecordingPostgresOutboxRepository(cursor=cursor, lease_seconds=600)
+
+    assert repository.pull(limit=250) == []
+
+    sql, params = cursor.executions[0]
+    assert "interval '1 minute'" not in sql
+    assert "locked_at < now() - (%s * interval '1 second')" in sql
+    assert params == (600, 100)
+
+
+def test_postgres_outbox_failure_ack_backs_off_and_marks_terminal_failure() -> None:
+    cursor = RecordingCursor()
+    repository = RecordingPostgresOutboxRepository(
+        cursor=cursor,
+        max_attempts=3,
+        initial_backoff_seconds=10,
+        max_backoff_seconds=40,
+    )
+
+    assert repository.ack(ids=[123], success=False, error="send failed") == 1
+
+    sql, params = cursor.executions[0]
+    assert "WHEN attempt_count + 1 >= %s THEN 'failed'" in sql
+    assert "available_at = CASE" in sql
+    assert "status NOT IN ('sent', 'failed')" in sql
+    assert params == (3, 3, 10, 40, "send failed", [123])
 
 
 def test_chat_replies_to_text() -> None:

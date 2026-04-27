@@ -9,6 +9,10 @@ from typing import Any, Protocol, cast
 logger = logging.getLogger(__name__)
 _DEFAULT_REPOSITORY = object()
 _repository_override: OutboxRepository | None | object = _DEFAULT_REPOSITORY
+OUTBOX_LEASE_SECONDS = 5 * 60
+OUTBOX_MAX_ATTEMPTS = 5
+OUTBOX_INITIAL_BACKOFF_SECONDS = 30
+OUTBOX_MAX_BACKOFF_SECONDS = 5 * 60
 
 
 class OutboxRepository(Protocol):
@@ -95,7 +99,7 @@ def ack(*, ids: list[int], success: bool, error: str | None = None) -> int:
 
     repository = _outbox_repository()
     if repository is None:
-        return len(ids)
+        return 0
     try:
         return repository.ack(ids=ids, success=success, error=error)
     except Exception:
@@ -104,9 +108,21 @@ def ack(*, ids: list[int], success: bool, error: str | None = None) -> int:
 
 
 class PostgresOutboxRepository:
-    def __init__(self, database_url: str, connect_timeout: int = 2) -> None:
+    def __init__(
+        self,
+        database_url: str,
+        connect_timeout: int = 2,
+        lease_seconds: int = OUTBOX_LEASE_SECONDS,
+        max_attempts: int = OUTBOX_MAX_ATTEMPTS,
+        initial_backoff_seconds: int = OUTBOX_INITIAL_BACKOFF_SECONDS,
+        max_backoff_seconds: int = OUTBOX_MAX_BACKOFF_SECONDS,
+    ) -> None:
         self.database_url = database_url
         self.connect_timeout = connect_timeout
+        self.lease_seconds = max(1, int(lease_seconds))
+        self.max_attempts = max(1, int(max_attempts))
+        self.initial_backoff_seconds = max(1, int(initial_backoff_seconds))
+        self.max_backoff_seconds = max(self.initial_backoff_seconds, int(max_backoff_seconds))
 
     def enqueue(
         self,
@@ -158,7 +174,7 @@ class PostgresOutboxRepository:
                             AND available_at <= now()
                             AND (
                                 locked_at IS NULL
-                                OR locked_at < now() - interval '1 minute'
+                                OR locked_at < now() - (%s * interval '1 second')
                             )
                         ORDER BY id
                         LIMIT %s
@@ -177,7 +193,7 @@ class PostgresOutboxRepository:
                         outbox.messages,
                         outbox.actions
                     """,
-                    (bounded_limit,),
+                    (self.lease_seconds, bounded_limit),
                 )
                 return list(cursor.fetchall())
 
@@ -207,15 +223,32 @@ class PostgresOutboxRepository:
                         """
                         UPDATE notification_outbox
                         SET
-                            status = 'pending',
+                            status = CASE
+                                WHEN attempt_count + 1 >= %s THEN 'failed'
+                                ELSE 'pending'
+                            END,
                             attempt_count = attempt_count + 1,
                             locked_at = NULL,
+                            available_at = CASE
+                                WHEN attempt_count + 1 >= %s THEN available_at
+                                ELSE now() + (
+                                    LEAST(%s * POWER(2, attempt_count), %s)
+                                    * interval '1 second'
+                                )
+                            END,
                             last_error = %s,
                             updated_at = now()
                         WHERE id = ANY(%s::bigint[])
-                            AND status <> 'sent'
+                            AND status NOT IN ('sent', 'failed')
                         """,
-                        (error, ids),
+                        (
+                            self.max_attempts,
+                            self.max_attempts,
+                            self.initial_backoff_seconds,
+                            self.max_backoff_seconds,
+                            error,
+                            ids,
+                        ),
                     )
                 return cursor.rowcount
 

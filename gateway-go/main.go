@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"gateway/client/brain"
 	"gateway/client/napcat"
@@ -27,6 +28,7 @@ const writeWait = 10 * time.Second
 const defaultOutboxPollInterval = 5 * time.Second
 const defaultOutboxPollLimit = 10
 const outboxRequestTimeout = 5 * time.Second
+const defaultOutboxActionTimeout = 30 * time.Second
 
 func getenv(key, fallback string) string {
 	value := os.Getenv(key)
@@ -43,8 +45,54 @@ type job struct {
 }
 
 type queuedAction struct {
-	action napcat.Action
-	result chan<- error
+	action      napcat.Action
+	writeResult chan<- error
+}
+
+type pendingNapcatActions struct {
+	mu      sync.Mutex
+	next    uint64
+	pending map[string]chan napcat.Response
+}
+
+func newPendingNapcatActions() *pendingNapcatActions {
+	return &pendingNapcatActions{pending: make(map[string]chan napcat.Response)}
+}
+
+func (actions *pendingNapcatActions) register(itemID int64) (string, <-chan napcat.Response) {
+	actions.mu.Lock()
+	defer actions.mu.Unlock()
+
+	actions.next++
+	echo := fmt.Sprintf("outbox:%d:%d", itemID, actions.next)
+	result := make(chan napcat.Response, 1)
+	actions.pending[echo] = result
+	return echo, result
+}
+
+func (actions *pendingNapcatActions) complete(response napcat.Response) bool {
+	if response.Echo == "" {
+		return false
+	}
+
+	actions.mu.Lock()
+	result, ok := actions.pending[response.Echo]
+	if ok {
+		delete(actions.pending, response.Echo)
+	}
+	actions.mu.Unlock()
+	if !ok {
+		return false
+	}
+
+	result <- response
+	return true
+}
+
+func (actions *pendingNapcatActions) unregister(echo string) {
+	actions.mu.Lock()
+	delete(actions.pending, echo)
+	actions.mu.Unlock()
 }
 
 // 1. 定义任务通道（设置缓冲区为 1000，防止偶发拥堵）
@@ -82,22 +130,22 @@ func writeLoop(conn *websocket.Conn, sendQueue <-chan queuedAction, done <-chan 
 			}
 			if err := conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
 				log.Printf("设置 WebSocket 写超时失败: %v", err)
-				reportActionResult(queued.result, err)
+				reportActionWriteResult(queued.writeResult, err)
 				return
 			}
 			if err := conn.WriteJSON(queued.action); err != nil {
 				log.Printf("写入 NapCat action 失败: %v", err)
-				reportActionResult(queued.result, err)
+				reportActionWriteResult(queued.writeResult, err)
 				return
 			}
-			reportActionResult(queued.result, nil)
+			reportActionWriteResult(queued.writeResult, nil)
 		case <-done:
 			return
 		}
 	}
 }
 
-func reportActionResult(result chan<- error, err error) {
+func reportActionWriteResult(result chan<- error, err error) {
 	if result == nil {
 		return
 	}
@@ -107,7 +155,7 @@ func reportActionResult(result chan<- error, err error) {
 	}
 }
 
-func startOutboxPoller(done <-chan struct{}, sendQueue chan<- queuedAction, baseURL string) {
+func startOutboxPoller(done <-chan struct{}, sendQueue chan<- queuedAction, pendingActions *pendingNapcatActions, baseURL string) {
 	baseURL = strings.TrimSpace(baseURL)
 	if baseURL == "" {
 		return
@@ -121,13 +169,14 @@ func startOutboxPoller(done <-chan struct{}, sendQueue chan<- queuedAction, base
 
 	interval := parseDurationEnv("OUTBOX_POLL_INTERVAL", defaultOutboxPollInterval)
 	limit := parsePositiveIntEnv("OUTBOX_POLL_LIMIT", defaultOutboxPollLimit)
+	actionTimeout := parseDurationEnv("OUTBOX_ACTION_TIMEOUT", defaultOutboxActionTimeout)
 
 	go func() {
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 
 		for {
-			pollOutboxOnce(done, sendQueue, client, limit)
+			pollOutboxOnce(done, sendQueue, pendingActions, client, limit, actionTimeout)
 
 			select {
 			case <-ticker.C:
@@ -138,7 +187,7 @@ func startOutboxPoller(done <-chan struct{}, sendQueue chan<- queuedAction, base
 	}()
 }
 
-func pollOutboxOnce(done <-chan struct{}, sendQueue chan<- queuedAction, client *brain.Client, limit int) {
+func pollOutboxOnce(done <-chan struct{}, sendQueue chan<- queuedAction, pendingActions *pendingNapcatActions, client *brain.Client, limit int, actionTimeout time.Duration) {
 	ctx, cancel := context.WithTimeout(context.Background(), outboxRequestTimeout)
 	items, err := client.PullOutbox(ctx, limit)
 	cancel()
@@ -154,7 +203,7 @@ func pollOutboxOnce(done <-chan struct{}, sendQueue chan<- queuedAction, client 
 		default:
 		}
 
-		sendErr := sendOutboxItem(done, sendQueue, item)
+		sendErr := sendOutboxItem(done, sendQueue, pendingActions, item, actionTimeout)
 		ack := brain.OutboxAck{
 			IDs:     []int64{item.ID},
 			Success: sendErr == nil,
@@ -171,7 +220,7 @@ func pollOutboxOnce(done <-chan struct{}, sendQueue chan<- queuedAction, client 
 	}
 }
 
-func sendOutboxItem(done <-chan struct{}, sendQueue chan<- queuedAction, item brain.OutboxItem) error {
+func sendOutboxItem(done <-chan struct{}, sendQueue chan<- queuedAction, pendingActions *pendingNapcatActions, item brain.OutboxItem, actionTimeout time.Duration) error {
 	action, err := napcat.NewOutboxAction(napcat.OutboxItem{
 		ID:         item.ID,
 		TargetType: item.TargetType,
@@ -182,22 +231,52 @@ func sendOutboxItem(done <-chan struct{}, sendQueue chan<- queuedAction, item br
 		return err
 	}
 
-	result := make(chan error, 1)
+	echo, actionResult := pendingActions.register(item.ID)
+	defer pendingActions.unregister(echo)
+	action.Echo = echo
+
+	writeResult := make(chan error, 1)
 	select {
-	case sendQueue <- queuedAction{action: action, result: result}:
+	case sendQueue <- queuedAction{action: action, writeResult: writeResult}:
 	case <-done:
 		return fmt.Errorf("websocket connection closed before outbox item %d was queued", item.ID)
 	}
 
 	select {
-	case err := <-result:
+	case err := <-writeResult:
 		if err != nil {
 			return fmt.Errorf("write outbox item %d action: %w", item.ID, err)
 		}
-		return nil
 	case <-done:
 		return fmt.Errorf("websocket connection closed before outbox item %d was written", item.ID)
 	}
+
+	timer := time.NewTimer(actionTimeout)
+	defer timer.Stop()
+
+	select {
+	case response := <-actionResult:
+		if response.Success() {
+			return nil
+		}
+		return fmt.Errorf("napcat outbox item %d action failed: %s", item.ID, response.ErrorText())
+	case <-timer.C:
+		return fmt.Errorf("napcat outbox item %d action response timed out after %s", item.ID, actionTimeout)
+	case <-done:
+		return fmt.Errorf("websocket connection closed before outbox item %d action response", item.ID)
+	}
+}
+
+func handlePendingNapcatResponse(data []byte, pendingActions *pendingNapcatActions) bool {
+	if pendingActions == nil {
+		return false
+	}
+
+	var response napcat.Response
+	if err := json.Unmarshal(data, &response); err != nil {
+		return false
+	}
+	return pendingActions.complete(response)
 }
 
 func brainMessagesToNapcatItems(messages []brain.Message) []napcat.BrainMessageItem {
@@ -266,6 +345,7 @@ func main() {
 		defer conn.Close()
 		sendQueue := make(chan queuedAction, 100)
 		done := make(chan struct{})
+		pendingActions := newPendingNapcatActions()
 		var closeOnce sync.Once
 		closeSession := func() {
 			closeOnce.Do(func() {
@@ -274,7 +354,7 @@ func main() {
 			})
 		}
 		go writeLoop(conn, sendQueue, done, closeSession)
-		startOutboxPoller(done, sendQueue, os.Getenv("BRAIN_BASE_URL"))
+		startOutboxPoller(done, sendQueue, pendingActions, os.Getenv("BRAIN_BASE_URL"))
 		defer closeSession()
 
 		for {
@@ -285,6 +365,9 @@ func main() {
 			}
 
 			//log.Println("收到消息:", string(message))
+			if handlePendingNapcatResponse(message, pendingActions) {
+				continue
+			}
 			select {
 			case jobQueue <- job{
 				data:      message,
