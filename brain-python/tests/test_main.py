@@ -119,3 +119,46 @@ def test_chat_falls_back_to_fake_planner_when_router_misses() -> None:
     assert body["messages"] == [{"type": "text", "text": "runtime"}]
     assert body["tool_calls"] == [{"name": "echo", "arguments": {"text": "runtime"}}]
     assert body["metadata"] == {"planner": "fake"}
+
+
+def test_weather_command_routes_without_fake_planner() -> None:
+    response = client.post("/chat", json={"text": "南京天气"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert body["should_reply"] is True
+    assert "南京天气预报" in body["reply"]
+    assert "metadata" in body
+    assert body["metadata"]["tool_name"] == "weather.get_forecast"
+    assert body["metadata"]["city"] == "南京"
+    assert "tool_calls" not in body
+
+
+def test_weather_natural_language_still_falls_back_for_later_ai_planner() -> None:
+    response = client.post("/chat", json={"text": "明天南京适合出门吗"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert body["reply"] == "收到：明天南京适合出门吗"
+
+
+def test_bilibili_link_auto_detects_video() -> None:
+    response = client.post("/chat", json={"text": "看看 https://www.bilibili.com/video/BV1xx411c7mD"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert "BV1xx411c7mD" in body["reply"]
+    assert "https://www.bilibili.com/video/BV1xx411c7mD" in body["reply"]
+
+
+def test_bilibili_short_link_is_detected_without_network_resolution() -> None:
+    response = client.post("/chat", json={"text": "https://b23.tv/abc123"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert "b23.tv/abc123" in body["reply"]
+    assert "resolution disabled" in body["reply"]
