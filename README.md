@@ -27,6 +27,12 @@ go mod download
 go run .
 ```
 
+Optional environment overrides:
+
+```bash
+GATEWAY_LISTEN_ADDR=:808 GATEWAY_WS_PATH=/ws go run .
+```
+
 Configure the NapCat WebSocket client to connect to:
 
 ```text
