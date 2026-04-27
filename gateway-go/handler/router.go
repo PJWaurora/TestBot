@@ -3,6 +3,7 @@ package handler
 import (
 	"log"
 
+	"gateway/client/napcat"
 	"gateway/handler/common"
 	"gateway/handler/group"
 	"gateway/handler/models"
@@ -21,15 +22,15 @@ func GetEventType(event BaseEvent) string {
 	return normalizer.NormalizeEvent(event).PrimaryType()
 }
 
-func Dispatch(data []byte) {
+func Dispatch(data []byte) []napcat.Action {
 	message, err := normalizer.NormalizeBytes(data)
 	if err != nil {
 		log.Printf("解析基础事件失败 (Failed to unmarshal base event): %v", err)
-		return
+		return nil
 	}
 
 	if message.PostType == "meta_event" {
-		return
+		return nil
 	}
 
 	eventType := message.PrimaryType()
@@ -44,24 +45,25 @@ func Dispatch(data []byte) {
 
 	switch eventType {
 	case "text":
-		common.HandleText(message)
+		return common.HandleText(message)
 
 	case "image":
-		common.HandleImage(message)
+		return common.HandleImage(message)
 
 	case "json":
-		common.HandleJson(message)
+		return common.HandleJson(message)
 
 	case "video":
-		common.HandleVideo(message)
+		return common.HandleVideo(message)
 
 	case "reply":
-		group.HandleReply(message)
+		return group.HandleReply(message)
 	case "at":
-		group.HandleAt(message)
+		return group.HandleAt(message)
 
 	default:
 		log.Println("未知事件类型:", eventType)
 	}
 
+	return nil
 }
