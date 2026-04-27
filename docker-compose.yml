@@ -1,0 +1,59 @@
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-testbot}
+      POSTGRES_USER: ${POSTGRES_USER:-testbot}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-local-only}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"$${POSTGRES_USER}\" -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
+
+  brain-python:
+    build:
+      context: ./brain-python
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      DATABASE_URL: ${DATABASE_URL:-postgres://testbot:change-me-local-only@postgres:5432/testbot?sslmode=disable}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=2).read()",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+  gateway-go:
+    build:
+      context: ./gateway-go
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      BRAIN_BASE_URL: ${BRAIN_BASE_URL:-http://brain-python:8000}
+      PYTHON_BRAIN_URL: ${PYTHON_BRAIN_URL:-http://brain-python:8000}
+      GATEWAY_LISTEN_ADDR: ${GATEWAY_LISTEN_ADDR:-:808}
+      GATEWAY_WS_PATH: ${GATEWAY_WS_PATH:-/ws}
+    ports:
+      - "808:808"
+    depends_on:
+      brain-python:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
