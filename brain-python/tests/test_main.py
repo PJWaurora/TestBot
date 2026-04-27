@@ -1,9 +1,43 @@
 from fastapi.testclient import TestClient
 
 from main import app
+from modules.registry import DeterministicModuleRegistry
+from modules.summary import SummaryModule
+from schemas import BrainResponse, ChatRequest
+from services.chat import reset_chat_repository, set_chat_repository
 
 
 client = TestClient(app)
+
+
+class FakeSummarySource:
+    def __init__(self, messages: list[dict[str, object]]) -> None:
+        self.messages = messages
+        self.calls: list[dict[str, object]] = []
+
+    def recent_group_messages(self, *, group_id: str | int | None = None, limit: int = 50) -> list[dict[str, object]]:
+        self.calls.append({"group_id": group_id, "limit": limit})
+        return self.messages[-limit:]
+
+
+class FakeChatRepository:
+    def __init__(self) -> None:
+        self.events: list[tuple[object, ...]] = []
+
+    def save_request(self, request: ChatRequest) -> int:
+        self.events.append(("request", request.text))
+        return 7
+
+    def save_response(self, message_id: int, response: BrainResponse) -> None:
+        self.events.append(("response", message_id, response.reply))
+
+
+class FailingChatRepository:
+    def save_request(self, request: ChatRequest) -> int:
+        raise RuntimeError("database unavailable")
+
+    def save_response(self, message_id: int, response: BrainResponse) -> None:
+        raise AssertionError("response should not persist without a saved message")
 
 
 def test_health() -> None:
@@ -22,6 +56,33 @@ def test_chat_replies_to_text() -> None:
     assert body["should_reply"] is True
     assert body["reply"] == "收到：hello"
     assert body["messages"] == [{"type": "text", "text": "收到：hello"}]
+
+
+def test_chat_persists_request_and_response_when_repository_is_available() -> None:
+    repository = FakeChatRepository()
+    set_chat_repository(repository)
+    try:
+        response = client.post("/chat", json={"text": "persist me"})
+    finally:
+        reset_chat_repository()
+
+    assert response.status_code == 200
+    assert response.json()["reply"] == "收到：persist me"
+    assert repository.events == [
+        ("request", "persist me"),
+        ("response", 7, "收到：persist me"),
+    ]
+
+
+def test_chat_still_replies_when_persistence_fails() -> None:
+    set_chat_repository(FailingChatRepository())
+    try:
+        response = client.post("/chat", json={"text": "hello"})
+    finally:
+        reset_chat_repository()
+
+    assert response.status_code == 200
+    assert response.json()["reply"] == "收到：hello"
 
 
 def test_chat_does_not_reply_to_empty_text() -> None:
@@ -106,6 +167,77 @@ def test_chat_deterministic_command_routes_tool_result_through_presenter() -> No
     assert body["messages"] == [{"type": "text", "text": "runtime"}]
     assert "tool_calls" not in body
     assert "metadata" not in body
+
+
+def test_summary_module_summarizes_in_memory_group_messages() -> None:
+    source = FakeSummarySource(
+        [
+            {"user_name": "Alice", "message_content": "deploy release release"},
+            {"user_name": "Bob", "message_content": "deploy plan"},
+            {"user_name": "Alice", "message_content": "release notes"},
+        ]
+    )
+    module = SummaryModule(message_source=source)
+
+    response = module.present(module.call(module.parse("总结 3")))
+
+    assert source.calls == [{"group_id": None, "limit": 3}]
+    assert response.handled is True
+    assert response.should_reply is True
+    assert "聊天总结（最近 3 条）" in response.reply
+    assert "总消息数：3" in response.reply
+    assert "活跃用户：2人（Alice(2), Bob(1)）" in response.reply
+    assert "高频词：release(3), deploy(2)" in response.reply
+    assert response.metadata == {
+        "module": "summary",
+        "tool_name": "summary.recent_group_messages",
+        "ok": True,
+        "limit": 3,
+        "total_messages": 3,
+    }
+
+
+def test_summary_registry_passes_group_context_to_module() -> None:
+    source = FakeSummarySource(
+        [
+            {"user_name": "Alice", "message_content": "server status"},
+            {"user_name": "Bob", "message_content": "server deploy"},
+        ]
+    )
+    registry = DeterministicModuleRegistry([SummaryModule(message_source=source)])
+
+    response = registry.handle(
+        "总结 2",
+        context=ChatRequest(text="总结 2", group_id="10001"),
+    )
+
+    assert response is not None
+    assert source.calls == [{"group_id": "10001", "limit": 2}]
+    assert response.metadata["group_id"] == "10001"
+    assert "总消息数：2" in response.reply
+
+
+def test_summary_module_rejects_invalid_limit_without_calling_source() -> None:
+    source = FakeSummarySource([{"user_name": "Alice", "message_content": "hello"}])
+    module = SummaryModule(message_source=source)
+
+    response = module.present(module.call(module.parse("总结 nope")))
+
+    assert source.calls == []
+    assert response.reply == "用法：总结 或 总结 N（N 为要统计的最近消息条数）"
+    assert response.metadata["error"] == "invalid_limit"
+
+
+def test_summary_command_routes_without_fake_planner() -> None:
+    response = client.post("/chat", json={"text": "总结"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert body["should_reply"] is True
+    assert body["metadata"]["module"] == "summary"
+    assert body["metadata"]["tool_name"] == "summary.recent_group_messages"
+    assert "tool_calls" not in body
 
 
 def test_chat_falls_back_to_fake_planner_when_router_misses() -> None:
