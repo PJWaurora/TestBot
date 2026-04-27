@@ -1,11 +1,12 @@
 package common
 
 import (
-	"gateway/handler/models"
 	"log"
+
+	"gateway/handler/normalizer"
 )
 
-func HandleImage(event models.BaseImageEvent) {
-	log.Println("处理图片事件:", event)
-	// 这里你可以添加处理图片事件的逻辑
+func HandleImage(message normalizer.IncomingMessage) {
+	log.Printf("处理图片事件: user_id=%d group_id=%d images=%+v", message.UserID, message.GroupID, message.Images)
+	// 后续可在这里接入图片下载、OCR 或多模态模型。
 }

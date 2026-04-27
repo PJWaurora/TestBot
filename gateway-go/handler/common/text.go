@@ -1,11 +1,12 @@
 package common
 
 import (
-	"gateway/handler/models"
 	"log"
+
+	"gateway/handler/normalizer"
 )
 
-func HandleText(event models.BaseTextEvent) {
-	log.Println("处理文本消息:", event)
-	// 这里你可以添加处理文本消息的逻辑
+func HandleText(message normalizer.IncomingMessage) {
+	log.Printf("处理文本消息: user_id=%d group_id=%d text=%q", message.UserID, message.GroupID, message.Text)
+	// 后续可在这里转发给 Python Brain，或先实现规则回复。
 }

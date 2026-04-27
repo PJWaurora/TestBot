@@ -1,11 +1,12 @@
 package common
 
 import (
-	"gateway/handler/models"
 	"log"
+
+	"gateway/handler/normalizer"
 )
 
-func HandleVideo(event models.BaseVideoEvent) {
-	log.Println("处理视频事件:", event)
-	// 这里你可以添加处理视频事件的逻辑
+func HandleVideo(message normalizer.IncomingMessage) {
+	log.Printf("处理视频事件: user_id=%d group_id=%d videos=%+v", message.UserID, message.GroupID, message.Videos)
+	// 后续可在这里做视频元信息提取或转发。
 }
