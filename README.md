@@ -59,6 +59,32 @@ Health check:
 curl http://localhost:8000/health
 ```
 
+### Brain Tool Runtime
+
+The Brain service exposes tools through `GET /tools` and `POST /tools/call`. Chat requests sent to `POST /chat` are resolved by the deterministic command router first; a matching command calls the selected tool, runs the tool result through a presenter, and returns the rendered `reply` and `messages`. When no deterministic command matches, the request falls back to the fake planner path so legacy tool commands and non-command chat still receive the current canned responses.
+
+The local deterministic echo command can be exercised with:
+
+```bash
+curl -X POST http://localhost:8000/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "/tool-echo runtime"}'
+```
+
+The deterministic Bilibili module detects BV IDs, `bilibili.com/video/...`, and
+`b23.tv/...` links. The TeamSpeak module handles `查询人数`, `查询人类`,
+`ts状态`, `ts人数`, and `ts帮助`. TeamSpeak querying is optional and uses these
+environment variables when enabled:
+
+```text
+TS3_HOST
+TS3_QUERY_PORT
+TS3_QUERY_USER
+TS3_QUERY_PASSWORD
+TS3_VIRTUAL_SERVER_ID
+TS3_TIMEOUT
+```
+
 ## Tests
 
 Run Go tests:

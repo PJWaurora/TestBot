@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from main import app
+from modules.tsperson import ChannelInfo, ClientInfo, ServerStatus, TSPersonModule, format_duration
 
 
 client = TestClient(app)
@@ -17,11 +18,222 @@ def test_chat_replies_to_text() -> None:
     response = client.post("/chat", json={"text": "hello"})
 
     assert response.status_code == 200
-    assert response.json() == {"reply": "收到：hello", "should_reply": True}
+    body = response.json()
+    assert body["handled"] is True
+    assert body["should_reply"] is True
+    assert body["reply"] == "收到：hello"
+    assert body["messages"] == [{"type": "text", "text": "收到：hello"}]
 
 
 def test_chat_does_not_reply_to_empty_text() -> None:
     response = client.post("/chat", json={"text": "   "})
 
     assert response.status_code == 200
-    assert response.json() == {"reply": "", "should_reply": False}
+    body = response.json()
+    assert body["handled"] is False
+    assert body["should_reply"] is False
+    assert "messages" not in body
+
+
+def test_chat_accepts_normalized_message_envelope() -> None:
+    response = client.post(
+        "/chat",
+        json={
+            "message": {
+                "role": "user",
+                "type": "text",
+                "content": "hello from envelope",
+                "user_id": 9,
+                "message_type": "private",
+            }
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert body["reply"] == "收到：hello from envelope"
+    assert body["messages"][0]["text"] == "收到：hello from envelope"
+
+
+def test_chat_uses_latest_normalized_message() -> None:
+    response = client.post(
+        "/chat",
+        json={
+            "messages": [
+                {"role": "user", "content": "first"},
+                {"role": "user", "text": "latest"},
+            ]
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["reply"] == "收到：latest"
+    assert body["messages"][0]["text"] == "收到：latest"
+
+
+def test_tools_are_listed() -> None:
+    response = client.get("/tools")
+
+    assert response.status_code == 200
+    tools = response.json()
+    assert tools[0]["name"] == "echo"
+    assert "input_schema" in tools[0]
+
+
+def test_tool_call_echoes_arguments() -> None:
+    response = client.post(
+        "/tools/call",
+        json={"name": "echo", "arguments": {"text": "runtime"}},
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "tool_name": "echo",
+        "ok": True,
+        "data": {"text": "runtime"},
+    }
+
+
+def test_chat_deterministic_command_routes_tool_result_through_presenter() -> None:
+    response = client.post("/chat", json={"text": "/tool-echo runtime"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert body["should_reply"] is True
+    assert body["reply"] == "runtime"
+    assert body["messages"] == [{"type": "text", "text": "runtime"}]
+    assert "tool_calls" not in body
+    assert "metadata" not in body
+
+
+def test_chat_falls_back_to_fake_planner_when_router_misses() -> None:
+    response = client.post("/chat", json={"text": "/echo runtime"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert body["should_reply"] is True
+    assert body["reply"] == "runtime"
+    assert body["messages"] == [{"type": "text", "text": "runtime"}]
+    assert body["tool_calls"] == [{"name": "echo", "arguments": {"text": "runtime"}}]
+    assert body["metadata"] == {"planner": "fake"}
+
+
+def test_bilibili_link_auto_detects_video() -> None:
+    response = client.post("/chat", json={"text": "看看 https://www.bilibili.com/video/BV1xx411c7mD"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert "BV1xx411c7mD" in body["reply"]
+    assert "https://www.bilibili.com/video/BV1xx411c7mD" in body["reply"]
+
+
+def test_bilibili_short_link_is_detected_without_network_resolution() -> None:
+    response = client.post("/chat", json={"text": "https://b23.tv/abc123"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert "b23.tv/abc123" in body["reply"]
+    assert "resolution disabled" in body["reply"]
+
+
+class FakeTSProvider:
+    def get_status(self) -> ServerStatus:
+        return ServerStatus(
+            name="Test TS",
+            platform="Linux",
+            version="3.13",
+            clients_online=2,
+            max_clients=32,
+            channels_online=3,
+            uptime=93780,
+            clients=[
+                ClientInfo(nickname="Alice", channel_id=1),
+                ClientInfo(nickname="Bob", channel_id=2),
+            ],
+            channels=[ChannelInfo(channel_id=1, name="Lobby", total_clients=2)],
+        )
+
+
+def test_tsperson_module_presents_status_from_provider() -> None:
+    module = TSPersonModule(provider=FakeTSProvider())
+
+    response = module.present(module.call(module.parse("ts状态")))
+
+    assert response.handled is True
+    assert response.should_reply is True
+    assert "TS 服务器：Test TS" in response.reply
+    assert "在线人数：2/32" in response.reply
+    assert "在线用户：Alice、Bob" in response.reply
+    assert response.metadata == {
+        "module": "tsperson",
+        "tool_name": "tsperson.get_status",
+        "ok": True,
+    }
+
+
+def test_tsperson_command_routes_without_fake_planner_when_unconfigured(monkeypatch) -> None:
+    for key in (
+        "TS3_HOST",
+        "TSPERSON_HOST",
+        "TS3_QUERY_USER",
+        "TSPERSON_QUERY_USER",
+        "TS3_QUERY_PASSWORD",
+        "TSPERSON_QUERY_PASSWORD",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    response = client.post("/chat", json={"text": "查询人数"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert body["should_reply"] is True
+    assert body["metadata"]["module"] == "tsperson"
+    assert body["metadata"]["error"] == "missing_config"
+    assert "TS ServerQuery 配置不完整" in body["reply"]
+    assert "tool_calls" not in body
+
+
+def test_tsperson_help_command() -> None:
+    response = client.post("/chat", json={"text": "ts帮助"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert "查询人数" in body["reply"]
+
+
+def test_tsperson_tool_is_listed_and_callable_when_unconfigured(monkeypatch) -> None:
+    for key in (
+        "TS3_HOST",
+        "TSPERSON_HOST",
+        "TS3_QUERY_USER",
+        "TSPERSON_QUERY_USER",
+        "TS3_QUERY_PASSWORD",
+        "TSPERSON_QUERY_PASSWORD",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    tools_response = client.get("/tools")
+    tool_names = [tool["name"] for tool in tools_response.json()]
+    assert "tsperson.get_status" in tool_names
+
+    call_response = client.post("/tools/call", json={"name": "tsperson.get_status", "arguments": {}})
+
+    assert call_response.status_code == 200
+    body = call_response.json()
+    assert body["tool_name"] == "tsperson.get_status"
+    assert body["ok"] is False
+    assert body["error"] == "missing_config"
+
+
+def test_tsperson_format_duration() -> None:
+    assert format_duration(59) == "59秒"
+    assert format_duration(3600) == "1小时"
+    assert format_duration(90000) == "1天1小时"
