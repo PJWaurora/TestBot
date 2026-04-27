@@ -160,6 +160,137 @@ func TestPostEnvelopeReturnsNilResponseForTimeout(t *testing.T) {
 	}
 }
 
+func TestPullOutboxAndAckUseOutboxEndpoints(t *testing.T) {
+	var ackRequest map[string]interface{}
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/api/outbox/pull":
+			if r.Method != http.MethodGet {
+				t.Errorf("pull method = %s, want GET", r.Method)
+			}
+			if got := r.URL.Query().Get("limit"); got != "7" {
+				t.Errorf("limit = %q, want 7", got)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"items":[{"id":42,"target_type":"group","target_id":"10001","messages":[{"type":"text","text":"hello"}]}]}`))
+		case "/api/outbox/ack":
+			if r.Method != http.MethodPost {
+				t.Errorf("ack method = %s, want POST", r.Method)
+			}
+			if got := r.Header.Get("Content-Type"); !strings.HasPrefix(got, "application/json") {
+				t.Errorf("content-type = %q, want application/json", got)
+			}
+			if err := json.NewDecoder(r.Body).Decode(&ackRequest); err != nil {
+				t.Errorf("decode ack request: %v", err)
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"acked":1}`))
+		default:
+			t.Errorf("unexpected path %s", r.URL.Path)
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+
+	client, err := brain.NewClient(server.URL + "/api")
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	items, err := client.PullOutbox(context.Background(), 7)
+	if err != nil {
+		t.Fatalf("pull outbox: %v", err)
+	}
+	if len(items) != 1 {
+		t.Fatalf("items len = %d, want 1", len(items))
+	}
+	if items[0].ID != 42 || items[0].TargetType != "group" || items[0].TargetID != "10001" {
+		t.Fatalf("item = %+v", items[0])
+	}
+	if len(items[0].Messages) != 1 || items[0].Messages[0].Text != "hello" {
+		t.Fatalf("messages = %+v", items[0].Messages)
+	}
+
+	err = client.AckOutbox(context.Background(), brain.OutboxAck{
+		IDs:     []int64{42},
+		Success: false,
+		Error:   "send failed",
+	})
+	if err != nil {
+		t.Fatalf("ack outbox: %v", err)
+	}
+
+	ids, ok := ackRequest["ids"].([]interface{})
+	if !ok || len(ids) != 1 || ids[0].(float64) != 42 {
+		t.Fatalf("ack ids = %#v, want [42]", ackRequest["ids"])
+	}
+	if ackRequest["success"] != false || ackRequest["error"] != "send failed" {
+		t.Fatalf("ack request = %#v", ackRequest)
+	}
+}
+
+func TestPullOutboxAcceptsBareArrayResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`[{"id":1,"target_type":"private","target_id":"9","messages":[{"type":"text","content":"hello"}]}]`))
+	}))
+	defer server.Close()
+
+	client, err := brain.NewClient(server.URL)
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	items, err := client.PullOutbox(context.Background(), 1)
+	if err != nil {
+		t.Fatalf("pull outbox: %v", err)
+	}
+	if len(items) != 1 || items[0].Messages[0].Content != "hello" {
+		t.Fatalf("items = %+v", items)
+	}
+}
+
+func TestAckOutboxRejectsIncompleteAckResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"acked":0}`))
+	}))
+	defer server.Close()
+
+	client, err := brain.NewClient(server.URL)
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	err = client.AckOutbox(context.Background(), brain.OutboxAck{
+		IDs:     []int64{42},
+		Success: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "confirmed 0/1 ids") {
+		t.Fatalf("ack outbox error = %v, want incomplete ack error", err)
+	}
+}
+
+func TestAckOutboxRejectsEmptyAckResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	defer server.Close()
+
+	client, err := brain.NewClient(server.URL)
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	err = client.AckOutbox(context.Background(), brain.OutboxAck{
+		IDs:     []int64{42},
+		Success: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "response is empty") {
+		t.Fatalf("ack outbox error = %v, want empty response error", err)
+	}
+}
+
 func TestNewClientValidatesBaseURLAndTimeout(t *testing.T) {
 	if _, err := brain.NewClient("localhost:8000"); err == nil {
 		t.Fatal("error is nil, want invalid base URL error")

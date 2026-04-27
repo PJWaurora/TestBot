@@ -132,13 +132,121 @@ func (client *Client) PostEnvelope(ctx context.Context, envelope Envelope) (*Res
 }
 
 func (client *Client) url() url.URL {
+	return client.endpointURL(client.endpoint)
+}
+
+func (client *Client) endpointURL(endpoint string) url.URL {
 	target := *client.baseURL
-	if client.endpoint == "" {
+	if endpoint == "" {
 		return target
 	}
 
-	target.Path = joinURLPath(target.Path, client.endpoint)
+	target.Path = joinURLPath(target.Path, endpoint)
 	return target
+}
+
+func (client *Client) PullOutbox(ctx context.Context, limit int) ([]OutboxItem, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if limit <= 0 {
+		return nil, fmt.Errorf("outbox limit must be positive")
+	}
+
+	targetURL := client.endpointURL("/outbox/pull")
+	query := targetURL.Query()
+	query.Set("limit", strconv.Itoa(limit))
+	targetURL.RawQuery = query.Encode()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, targetURL.String(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("build brain outbox pull request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+
+	resp, err := client.httpClient.Do(req)
+	if err != nil {
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		return nil, fmt.Errorf("pull brain outbox: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return nil, statusError(resp)
+	}
+
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("read brain outbox response: %w", err)
+	}
+
+	var wrapped struct {
+		Items []OutboxItem `json:"items"`
+	}
+	if err := json.Unmarshal(body, &wrapped); err == nil && wrapped.Items != nil {
+		return wrapped.Items, nil
+	}
+
+	var items []OutboxItem
+	if err := json.Unmarshal(body, &items); err != nil {
+		return nil, fmt.Errorf("decode brain outbox response: %w", err)
+	}
+	return items, nil
+}
+
+func (client *Client) AckOutbox(ctx context.Context, ack OutboxAck) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if len(ack.IDs) == 0 {
+		return fmt.Errorf("outbox ack ids cannot be empty")
+	}
+
+	body, err := json.Marshal(ack)
+	if err != nil {
+		return fmt.Errorf("marshal brain outbox ack: %w", err)
+	}
+
+	targetURL := client.endpointURL("/outbox/ack")
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL.String(), bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("build brain outbox ack request: %w", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := client.httpClient.Do(req)
+	if err != nil {
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+		return fmt.Errorf("ack brain outbox: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		return statusError(resp)
+	}
+
+	responseBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("read brain outbox ack response: %w", err)
+	}
+	if strings.TrimSpace(string(responseBody)) == "" {
+		return fmt.Errorf("brain outbox ack response is empty")
+	}
+
+	var ackResponse OutboxAckResponse
+	if err := json.Unmarshal(responseBody, &ackResponse); err != nil {
+		return fmt.Errorf("decode brain outbox ack response: %w", err)
+	}
+	if ackResponse.Acked != len(ack.IDs) {
+		return fmt.Errorf("brain outbox ack confirmed %d/%d ids", ackResponse.Acked, len(ack.IDs))
+	}
+
+	return nil
 }
 
 func joinURLPath(basePath, endpoint string) string {
@@ -443,4 +551,21 @@ type ToolCall struct {
 	ID        string                 `json:"id,omitempty"`
 	Name      string                 `json:"name,omitempty"`
 	Arguments map[string]interface{} `json:"arguments,omitempty"`
+}
+
+type OutboxItem struct {
+	ID         int64     `json:"id"`
+	TargetType string    `json:"target_type"`
+	TargetID   string    `json:"target_id"`
+	Messages   []Message `json:"messages"`
+}
+
+type OutboxAck struct {
+	IDs     []int64 `json:"ids"`
+	Success bool    `json:"success"`
+	Error   string  `json:"error,omitempty"`
+}
+
+type OutboxAckResponse struct {
+	Acked int `json:"acked"`
 }
