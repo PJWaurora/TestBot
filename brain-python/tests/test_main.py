@@ -95,13 +95,27 @@ def test_tool_call_echoes_arguments() -> None:
     }
 
 
-def test_chat_fake_planner_can_call_tool() -> None:
+def test_chat_deterministic_command_routes_tool_result_through_presenter() -> None:
+    response = client.post("/chat", json={"text": "/tool-echo runtime"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert body["should_reply"] is True
+    assert body["reply"] == "runtime"
+    assert body["messages"] == [{"type": "text", "text": "runtime"}]
+    assert "tool_calls" not in body
+    assert "metadata" not in body
+
+
+def test_chat_falls_back_to_fake_planner_when_router_misses() -> None:
     response = client.post("/chat", json={"text": "/echo runtime"})
 
     assert response.status_code == 200
     body = response.json()
     assert body["handled"] is True
+    assert body["should_reply"] is True
     assert body["reply"] == "runtime"
-    assert body["messages"][0]["text"] == "runtime"
+    assert body["messages"] == [{"type": "text", "text": "runtime"}]
     assert body["tool_calls"] == [{"name": "echo", "arguments": {"text": "runtime"}}]
     assert body["metadata"] == {"planner": "fake"}

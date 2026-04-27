@@ -1,4 +1,5 @@
 from schemas import BrainMessage, BrainResponse, ChatRequest, ToolCall, ToolCallRequest
+from modules.registry import default_registry
 from services.tools import call_tool
 
 
@@ -6,6 +7,10 @@ def build_chat_response(request: ChatRequest) -> BrainResponse:
     text = _request_text(request)
     if not text:
         return BrainResponse(handled=False, should_reply=False)
+
+    module_response = default_registry.handle(text)
+    if module_response is not None:
+        return module_response
 
     tool_request = _plan_tool_call(text)
     if tool_request is not None:

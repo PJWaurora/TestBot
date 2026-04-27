@@ -59,6 +59,18 @@ Health check:
 curl http://localhost:8000/health
 ```
 
+### Brain Tool Runtime
+
+The Brain service exposes tools through `GET /tools` and `POST /tools/call`. Chat requests sent to `POST /chat` are resolved by the deterministic command router first; a matching command calls the selected tool, runs the tool result through a presenter, and returns the rendered `reply` and `messages`. When no deterministic command matches, the request falls back to the fake planner path so legacy tool commands and non-command chat still receive the current canned responses.
+
+The local deterministic echo command can be exercised with:
+
+```bash
+curl -X POST http://localhost:8000/chat \
+  -H 'Content-Type: application/json' \
+  -d '{"text": "/tool-echo runtime"}'
+```
+
 ## Tests
 
 Run Go tests:
