@@ -5,6 +5,7 @@ import (
 	handler "gateway/handler"
 	"log"
 	"net/http"
+	"os"
 	"sync"
 	"time"
 
@@ -18,6 +19,14 @@ var upgrader = websocket.Upgrader{
 }
 
 const writeWait = 10 * time.Second
+
+func getenv(key, fallback string) string {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+	return value
+}
 
 type job struct {
 	data      []byte
@@ -73,13 +82,16 @@ func writeLoop(conn *websocket.Conn, sendQueue <-chan napcat.Action, done <-chan
 }
 
 func main() {
+	listenAddr := getenv("GATEWAY_LISTEN_ADDR", ":808")
+	wsPath := getenv("GATEWAY_WS_PATH", "/ws")
 
 	workerCount := 10
 	for i := 1; i <= workerCount; i++ {
 		go worker(i)
 	}
 
-	http.HandleFunc("/ws", func(w http.ResponseWriter, r *http.Request) {
+	mux := http.NewServeMux()
+	mux.HandleFunc(wsPath, func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
 			//log.Println("Upgrade error:", err)
@@ -118,6 +130,6 @@ func main() {
 		}
 
 	})
-	//log.Println("WebSocket服务器已启动，等待连接...")
-	log.Fatal(http.ListenAndServe(":808", nil))
+	log.Printf("WebSocket服务器已启动，监听 %s%s", listenAddr, wsPath)
+	log.Fatal(http.ListenAndServe(listenAddr, mux))
 }
