@@ -15,7 +15,7 @@ class ChatPersistenceRepository(Protocol):
         ...
 
     def recent_group_messages(
-        self, *, group_id: str | int | None = None, limit: int = 50
+        self, *, group_id: str | int | None = None, limit: int = 50, exclude_message_id: int | None = None
     ) -> list[dict[str, Any]]:
         ...
 
@@ -61,7 +61,7 @@ class PostgresChatRepository:
             metadata.get("message_type"),
             conversation_type,
         )
-        post_type = _string_value(metadata.get("post_type"), "message")
+        post_type = _string_value(request.post_type, metadata.get("post_type"), "message")
         text = _request_text(request, message)
         sender = metadata.get("sender") if isinstance(metadata.get("sender"), dict) else {}
 
@@ -80,7 +80,7 @@ class PostgresChatRepository:
                     (
                         conversation_type,
                         external_conversation_id,
-                        _string_value(metadata.get("group_name"), metadata.get("title")),
+                        _string_value(request.group_name, metadata.get("group_name"), metadata.get("title")),
                     ),
                 )
                 conversation_id = cursor.fetchone()[0]
@@ -132,16 +132,16 @@ class PostgresChatRepository:
                         conversation_id,
                         raw_event_id,
                         external_message_id,
-                        _string_value(metadata.get("message_seq")),
-                        _string_value(metadata.get("real_id")),
-                        _string_value(metadata.get("real_seq")),
+                        _string_value(request.message_seq, metadata.get("message_seq")),
+                        _string_value(request.real_id, metadata.get("real_id")),
+                        _string_value(request.real_seq, metadata.get("real_seq")),
                         post_type,
                         message_type,
-                        _string_value(metadata.get("sub_type")),
-                        _primary_type(message, text, metadata),
+                        _string_value(request.sub_type, metadata.get("sub_type")),
+                        _primary_type(request, message, text, metadata),
                         text,
-                        _string_value(metadata.get("raw_message"), text),
-                        Jsonb(metadata.get("segments") or []),
+                        _string_value(request.raw_message, metadata.get("raw_message"), text),
+                        Jsonb(request.segments or metadata.get("segments") or []),
                         _string_value(
                             request.user_id,
                             _getattr(message, "user_id"),
@@ -151,7 +151,7 @@ class PostgresChatRepository:
                         _string_value(sender.get("nickname")),
                         _string_value(sender.get("card")),
                         _string_value(sender.get("role")),
-                        _sent_at(metadata),
+                        _sent_at(request, metadata),
                     ),
                 )
                 return cursor.fetchone()[0]
@@ -190,7 +190,7 @@ class PostgresChatRepository:
         return psycopg.connect(self.database_url, **kwargs)
 
     def recent_group_messages(
-        self, *, group_id: str | int | None = None, limit: int = 50
+        self, *, group_id: str | int | None = None, limit: int = 50, exclude_message_id: int | None = None
     ) -> list[dict[str, Any]]:
         if group_id is None:
             return []
@@ -218,10 +218,11 @@ class PostgresChatRepository:
                     JOIN conversations c ON c.id = m.conversation_id
                     WHERE c.conversation_type = 'group'
                         AND c.external_id = %s
+                        AND (%s::bigint IS NULL OR m.id <> %s::bigint)
                     ORDER BY m.created_at DESC
                     LIMIT %s
                     """,
-                    (str(group_id), max(1, min(int(limit), 500))),
+                    (str(group_id), exclude_message_id, exclude_message_id, max(1, min(int(limit), 500))),
                 )
                 rows = cursor.fetchall()
 
@@ -239,7 +240,39 @@ def _request_metadata(request: ChatRequest, message: BrainMessage | None) -> dic
     if message is not None:
         metadata.update(message.metadata)
     metadata.update(request.metadata)
+    metadata.update(_request_envelope_fields(request))
     return metadata
+
+
+def _request_envelope_fields(request: ChatRequest) -> dict[str, Any]:
+    fields = (
+        "sender",
+        "post_type",
+        "sub_type",
+        "primary_type",
+        "group_name",
+        "target_id",
+        "message_seq",
+        "real_id",
+        "real_seq",
+        "raw_message",
+        "time",
+        "text_segments",
+        "images",
+        "json_messages",
+        "videos",
+        "at_user_ids",
+        "at_all",
+        "reply_to_message_id",
+        "unknown_types",
+        "segments",
+    )
+    out: dict[str, Any] = {}
+    for field in fields:
+        value = getattr(request, field)
+        if _has_value(value):
+            out[field] = value
+    return out
 
 
 def _conversation_key(
@@ -259,7 +292,7 @@ def _conversation_key(
         conversation_type = "group" if message_type == "group" else "private"
         return conversation_type, conversation_id
 
-    user_id = _string_value(request.user_id, _getattr(message, "user_id"))
+    user_id = _string_value(request.user_id, request.target_id, _getattr(message, "user_id"))
     if user_id:
         return "private", user_id
 
@@ -267,7 +300,7 @@ def _conversation_key(
 
 
 def _request_text(request: ChatRequest, message: BrainMessage | None) -> str | None:
-    candidates = [request.text, request.content]
+    candidates = [request.raw_message or "", "".join(request.text_segments), request.content, request.text]
     if request.message is not None:
         candidates.append(_message_text(request.message))
     candidates.extend(_message_text(candidate) for candidate in request.messages)
@@ -286,11 +319,12 @@ def _message_text(message: BrainMessage) -> str:
 
 
 def _primary_type(
+    request: ChatRequest,
     message: BrainMessage | None,
     text: str | None,
     metadata: dict[str, Any],
 ) -> str:
-    primary_type = _string_value(metadata.get("primary_type"))
+    primary_type = _string_value(request.primary_type, metadata.get("primary_type"))
     if primary_type:
         return primary_type
     if message is not None and message.type:
@@ -317,8 +351,8 @@ def _metadata_value(response: BrainResponse, key: str) -> str | None:
     return _string_value(response.metadata.get(key))
 
 
-def _sent_at(metadata: dict[str, Any]) -> datetime | None:
-    value = metadata.get("time") or metadata.get("sent_at")
+def _sent_at(request: ChatRequest, metadata: dict[str, Any]) -> datetime | None:
+    value = request.time or metadata.get("time") or metadata.get("sent_at")
     if value is None:
         return None
     if isinstance(value, datetime):
@@ -352,3 +386,13 @@ def _string_value(*values: Any) -> str | None:
             continue
         return str(value)
     return None
+
+
+def _has_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if value is False:
+        return False
+    if isinstance(value, (str, list, dict)) and not value:
+        return False
+    return True

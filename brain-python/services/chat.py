@@ -25,6 +25,7 @@ def reset_chat_repository() -> None:
 def build_chat_response(request: ChatRequest) -> BrainResponse:
     repository = _chat_repository()
     message_id = _save_request(repository, request)
+    request.saved_message_id = message_id
     response = _build_chat_response(request)
     _save_response(repository, message_id, response)
     return response
@@ -62,7 +63,7 @@ def _build_chat_response(request: ChatRequest) -> BrainResponse:
 
 
 def _request_text(request: ChatRequest) -> str:
-    candidates = [request.text, request.content]
+    candidates = [request.raw_message or "", "".join(request.text_segments), request.content, request.text]
     if request.message is not None:
         candidates.append(_message_text(request.message))
     candidates.extend(_message_text(message) for message in request.messages)

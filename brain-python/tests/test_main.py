@@ -5,6 +5,7 @@ from modules.registry import DeterministicModuleRegistry
 from modules.summary import SummaryModule
 from schemas import BrainResponse, ChatRequest
 from services.chat import reset_chat_repository, set_chat_repository
+from services.persistence import PostgresChatRepository, _conversation_key, _request_metadata, _request_text
 
 
 client = TestClient(app)
@@ -18,6 +19,26 @@ class FakeSummarySource:
     def recent_group_messages(self, *, group_id: str | int | None = None, limit: int = 50) -> list[dict[str, object]]:
         self.calls.append({"group_id": group_id, "limit": limit})
         return self.messages[-limit:]
+
+
+class ExcludingSummarySource:
+    def __init__(self, messages: list[dict[str, object]]) -> None:
+        self.messages = messages
+        self.calls: list[dict[str, object]] = []
+
+    def recent_group_messages(
+        self,
+        *,
+        group_id: str | int | None = None,
+        limit: int = 50,
+        exclude_message_id: int | None = None,
+    ) -> list[dict[str, object]]:
+        self.calls.append({"group_id": group_id, "limit": limit, "exclude_message_id": exclude_message_id})
+        return [
+            message
+            for message in self.messages[-limit:]
+            if message.get("id") != exclude_message_id
+        ]
 
 
 class FakeChatRepository:
@@ -38,6 +59,38 @@ class FailingChatRepository:
 
     def save_response(self, message_id: int, response: BrainResponse) -> None:
         raise AssertionError("response should not persist without a saved message")
+
+
+class CapturingCursor:
+    def __init__(self) -> None:
+        self.calls: list[tuple[str, tuple[object, ...]]] = []
+        self._ids = iter([101, 102, 103])
+
+    def __enter__(self) -> "CapturingCursor":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def execute(self, sql: str, params: tuple[object, ...]) -> None:
+        self.calls.append((sql, params))
+
+    def fetchone(self) -> list[int]:
+        return [next(self._ids)]
+
+
+class CapturingConnection:
+    def __init__(self, cursor: CapturingCursor) -> None:
+        self._cursor = cursor
+
+    def __enter__(self) -> "CapturingConnection":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def cursor(self) -> CapturingCursor:
+        return self._cursor
 
 
 def test_health() -> None:
@@ -133,6 +186,132 @@ def test_chat_uses_latest_normalized_message() -> None:
     assert body["messages"][0]["text"] == "收到：latest"
 
 
+def test_chat_accepts_gateway_envelope_fields() -> None:
+    response = client.post(
+        "/chat",
+        json={
+            "post_type": "message",
+            "message_type": "group",
+            "sub_type": "normal",
+            "primary_type": "text",
+            "message_id": "9001",
+            "message_seq": "42",
+            "real_id": "43",
+            "real_seq": "44",
+            "user_id": "100",
+            "group_id": "200",
+            "group_name": "Ops",
+            "target_id": "300",
+            "sender": {"user_id": "100", "nickname": "Alice", "card": "A", "role": "member"},
+            "text_segments": ["hello", " gateway"],
+            "images": [{"url": "https://example.test/a.png"}],
+            "json_messages": [{"raw": "{\"ok\": true}", "parsed": {"ok": True}}],
+            "videos": [{"url": "https://example.test/a.mp4"}],
+            "at_user_ids": ["101"],
+            "at_all": True,
+            "reply_to_message_id": "8000",
+            "unknown_types": ["face"],
+            "segments": [{"type": "text", "data": {"text": "hello gateway"}}],
+            "raw_message": "hello gateway",
+            "time": 1710000000,
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["reply"] == "收到：hello gateway"
+
+
+def test_persistence_metadata_uses_top_level_gateway_envelope_fields() -> None:
+    request = ChatRequest(
+        text="top text",
+        post_type="message",
+        message_type="group",
+        sub_type="normal",
+        primary_type="text",
+        message_id="9001",
+        message_seq="42",
+        real_id="43",
+        real_seq="44",
+        user_id="100",
+        group_id="200",
+        group_name="Ops",
+        target_id="300",
+        sender={"user_id": "100", "nickname": "Alice", "card": "A", "role": "member"},
+        text_segments=["top", " text"],
+        images=[{"url": "https://example.test/a.png"}],
+        json_messages=[{"raw": "{\"ok\": true}", "parsed": {"ok": True}}],
+        videos=[{"url": "https://example.test/a.mp4"}],
+        at_user_ids=["101"],
+        at_all=True,
+        reply_to_message_id="8000",
+        unknown_types=["face"],
+        segments=[{"type": "text", "data": {"text": "top text"}}],
+        raw_message="raw top text",
+        time=1710000000,
+        metadata={"primary_type": "legacy", "sender": {"user_id": "old"}, "group_name": "Old"},
+    )
+
+    metadata = _request_metadata(request, None)
+
+    assert metadata["primary_type"] == "text"
+    assert metadata["sender"]["nickname"] == "Alice"
+    assert metadata["group_name"] == "Ops"
+    assert metadata["segments"] == [{"type": "text", "data": {"text": "top text"}}]
+    assert metadata["at_all"] is True
+    assert _conversation_key(request, None) == ("group", "200")
+    assert _request_text(request, None) == "top text"
+
+
+def test_postgres_persistence_writes_top_level_gateway_fields() -> None:
+    request = ChatRequest(
+        text="top text",
+        post_type="message",
+        message_type="group",
+        sub_type="normal",
+        primary_type="text",
+        message_id="9001",
+        message_seq="42",
+        real_id="43",
+        real_seq="44",
+        user_id="100",
+        group_id="200",
+        group_name="Ops",
+        sender={"user_id": "100", "nickname": "Alice", "card": "A", "role": "member"},
+        segments=[{"type": "text", "data": {"text": "top text"}}],
+        raw_message="raw top text",
+        time=1710000000,
+        metadata={"group_name": "Old", "primary_type": "legacy", "sender": {"user_id": "old"}},
+    )
+    cursor = CapturingCursor()
+    repository = PostgresChatRepository("postgresql://unused")
+    repository._connect = lambda **_: CapturingConnection(cursor)  # type: ignore[method-assign]
+
+    saved_id = repository.save_request(request)
+
+    conversation_params = cursor.calls[0][1]
+    raw_params = cursor.calls[1][1]
+    message_params = cursor.calls[2][1]
+    assert saved_id == 103
+    assert conversation_params == ("group", "200", "Ops")
+    assert raw_params[:3] == ("9001", "message", "group")
+    assert message_params[2:12] == (
+        "9001",
+        "42",
+        "43",
+        "44",
+        "message",
+        "group",
+        "normal",
+        "text",
+        "top text",
+        "raw top text",
+    )
+    assert message_params[12].obj == request.segments
+    assert message_params[13:17] == ("100", "Alice", "A", "member")
+    assert message_params[17].isoformat() == "2024-03-09T16:00:00+00:00"
+
+
 def test_tools_are_listed() -> None:
     response = client.get("/tools")
 
@@ -215,6 +394,25 @@ def test_summary_registry_passes_group_context_to_module() -> None:
     assert source.calls == [{"group_id": "10001", "limit": 2}]
     assert response.metadata["group_id"] == "10001"
     assert "总消息数：2" in response.reply
+
+
+def test_summary_registry_excludes_current_saved_message() -> None:
+    source = ExcludingSummarySource(
+        [
+            {"id": 10, "user_name": "Alice", "message_content": "deploy release"},
+            {"id": 11, "user_name": "Bob", "message_content": "server status"},
+            {"id": 12, "user_name": "Caller", "message_content": "总结 2"},
+        ]
+    )
+    registry = DeterministicModuleRegistry([SummaryModule(message_source=source)])
+    context = ChatRequest(text="总结 2", group_id="10001", saved_message_id=12)
+
+    response = registry.handle("总结 2", context=context)
+
+    assert response is not None
+    assert source.calls == [{"group_id": "10001", "limit": 3, "exclude_message_id": 12}]
+    assert "总消息数：2" in response.reply
+    assert "Caller" not in response.reply
 
 
 def test_summary_module_rejects_invalid_limit_without_calling_source() -> None:

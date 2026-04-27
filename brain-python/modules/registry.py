@@ -39,6 +39,9 @@ class DeterministicModuleRegistry:
             user_id = _context_value(context, "user_id")
             if user_id is not None:
                 arguments.setdefault("user_id", user_id)
+            saved_message_id = _context_value(context, "saved_message_id")
+            if saved_message_id is not None:
+                arguments.setdefault("exclude_message_id", saved_message_id)
         result = module.call(arguments)
         return module.present(result)
 

@@ -20,7 +20,11 @@ NO_HISTORY_TEXT = "暂无可总结的群聊记录：当前运行环境没有可�
 
 class SummaryMessageSource(Protocol):
     def recent_group_messages(
-        self, *, group_id: str | int | None = None, limit: int = DEFAULT_LIMIT
+        self,
+        *,
+        group_id: str | int | None = None,
+        limit: int = DEFAULT_LIMIT,
+        exclude_message_id: int | None = None,
     ) -> Sequence[Any]:
         ...
 
@@ -121,6 +125,7 @@ class SummaryModule:
         group_id = arguments.get("group_id")
         if not isinstance(group_id, (str, int)):
             group_id = None
+        exclude_message_id = self._optional_int(arguments.get("exclude_message_id"))
 
         if self.message_source is None:
             return {
@@ -132,7 +137,12 @@ class SummaryModule:
             }
 
         try:
-            messages = self._recent_group_messages(self.message_source, limit=limit, group_id=group_id)
+            messages = self._recent_group_messages(
+                self.message_source,
+                limit=limit,
+                group_id=group_id,
+                exclude_message_id=exclude_message_id,
+            )
         except Exception as exc:
             return {
                 "tool_name": TOOL_NAME,
@@ -148,6 +158,7 @@ class SummaryModule:
             "ok": True,
             "limit": limit,
             "group_id": group_id,
+            "exclude_message_id": exclude_message_id,
             **summary,
         }
 
@@ -209,22 +220,47 @@ class SummaryModule:
             "top_words": self._top_counts(word_counts, limit=10),
         }
 
-    def _recent_group_messages(self, source: Any, *, limit: int, group_id: str | int | None) -> list[Any]:
+    def _recent_group_messages(
+        self,
+        source: Any,
+        *,
+        limit: int,
+        group_id: str | int | None,
+        exclude_message_id: int | None,
+    ) -> list[Any]:
         for method_name in self._RECENT_METHODS:
             method = getattr(source, method_name, None)
             if callable(method):
-                messages = self._call_recent_method(method, limit=limit, group_id=group_id)
-                return list(messages or [])
+                fetch_limit = limit + 1 if exclude_message_id is not None else limit
+                messages = self._call_recent_method(
+                    method,
+                    limit=fetch_limit,
+                    group_id=group_id,
+                    exclude_message_id=exclude_message_id,
+                )
+                if exclude_message_id is None:
+                    filtered = list(messages or [])
+                else:
+                    filtered = [
+                        message
+                        for message in list(messages or [])
+                        if self._message_id(message) != exclude_message_id
+                    ]
+                return filtered[:limit]
         raise AttributeError("message source does not expose recent_group_messages")
 
     @staticmethod
     def _call_recent_method(
-        method: Callable[..., Sequence[Any] | None], *, limit: int, group_id: str | int | None
+        method: Callable[..., Sequence[Any] | None],
+        *,
+        limit: int,
+        group_id: str | int | None,
+        exclude_message_id: int | None,
     ) -> Sequence[Any]:
         try:
             signature = inspect.signature(method)
         except (TypeError, ValueError):
-            return method(group_id=group_id, limit=limit) or []
+            return method(group_id=group_id, limit=limit, exclude_message_id=exclude_message_id) or []
 
         parameters = signature.parameters
         accepts_kwargs = any(parameter.kind == inspect.Parameter.VAR_KEYWORD for parameter in parameters.values())
@@ -233,6 +269,8 @@ class SummaryModule:
             kwargs["group_id"] = group_id
         if accepts_kwargs or "limit" in parameters:
             kwargs["limit"] = limit
+        if (accepts_kwargs or "exclude_message_id" in parameters) and exclude_message_id is not None:
+            kwargs["exclude_message_id"] = exclude_message_id
         if kwargs:
             return method(**kwargs) or []
 
@@ -248,6 +286,24 @@ class SummaryModule:
         if len(positional) >= 2:
             return method(group_id, limit) or []
         return method(limit) or []
+
+    @staticmethod
+    def _message_id(message: Any) -> int | None:
+        value: Any = None
+        if isinstance(message, dict):
+            value = message.get("id")
+        else:
+            value = getattr(message, "id", None)
+        return SummaryModule._optional_int(value)
+
+    @staticmethod
+    def _optional_int(value: Any) -> int | None:
+        if value is None:
+            return None
+        try:
+            return int(value)
+        except (TypeError, ValueError):
+            return None
 
     @classmethod
     def _message_text(cls, message: Any) -> str:
