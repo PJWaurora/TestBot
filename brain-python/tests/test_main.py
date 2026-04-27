@@ -1,6 +1,7 @@
 from fastapi.testclient import TestClient
 
 from main import app
+from modules.tsperson import ChannelInfo, ClientInfo, ServerStatus, TSPersonModule, format_duration
 
 
 client = TestClient(app)
@@ -139,3 +140,100 @@ def test_bilibili_short_link_is_detected_without_network_resolution() -> None:
     assert body["handled"] is True
     assert "b23.tv/abc123" in body["reply"]
     assert "resolution disabled" in body["reply"]
+
+
+class FakeTSProvider:
+    def get_status(self) -> ServerStatus:
+        return ServerStatus(
+            name="Test TS",
+            platform="Linux",
+            version="3.13",
+            clients_online=2,
+            max_clients=32,
+            channels_online=3,
+            uptime=93780,
+            clients=[
+                ClientInfo(nickname="Alice", channel_id=1),
+                ClientInfo(nickname="Bob", channel_id=2),
+            ],
+            channels=[ChannelInfo(channel_id=1, name="Lobby", total_clients=2)],
+        )
+
+
+def test_tsperson_module_presents_status_from_provider() -> None:
+    module = TSPersonModule(provider=FakeTSProvider())
+
+    response = module.present(module.call(module.parse("ts状态")))
+
+    assert response.handled is True
+    assert response.should_reply is True
+    assert "TS 服务器：Test TS" in response.reply
+    assert "在线人数：2/32" in response.reply
+    assert "在线用户：Alice、Bob" in response.reply
+    assert response.metadata == {
+        "module": "tsperson",
+        "tool_name": "tsperson.get_status",
+        "ok": True,
+    }
+
+
+def test_tsperson_command_routes_without_fake_planner_when_unconfigured(monkeypatch) -> None:
+    for key in (
+        "TS3_HOST",
+        "TSPERSON_HOST",
+        "TS3_QUERY_USER",
+        "TSPERSON_QUERY_USER",
+        "TS3_QUERY_PASSWORD",
+        "TSPERSON_QUERY_PASSWORD",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    response = client.post("/chat", json={"text": "查询人数"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert body["should_reply"] is True
+    assert body["metadata"]["module"] == "tsperson"
+    assert body["metadata"]["error"] == "missing_config"
+    assert "TS ServerQuery 配置不完整" in body["reply"]
+    assert "tool_calls" not in body
+
+
+def test_tsperson_help_command() -> None:
+    response = client.post("/chat", json={"text": "ts帮助"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert "查询人数" in body["reply"]
+
+
+def test_tsperson_tool_is_listed_and_callable_when_unconfigured(monkeypatch) -> None:
+    for key in (
+        "TS3_HOST",
+        "TSPERSON_HOST",
+        "TS3_QUERY_USER",
+        "TSPERSON_QUERY_USER",
+        "TS3_QUERY_PASSWORD",
+        "TSPERSON_QUERY_PASSWORD",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    tools_response = client.get("/tools")
+    tool_names = [tool["name"] for tool in tools_response.json()]
+    assert "tsperson.get_status" in tool_names
+
+    call_response = client.post("/tools/call", json={"name": "tsperson.get_status", "arguments": {}})
+
+    assert call_response.status_code == 200
+    body = call_response.json()
+    assert body["tool_name"] == "tsperson.get_status"
+    assert body["ok"] is False
+    assert body["error"] == "missing_config"
+
+
+def test_tsperson_format_duration() -> None:
+    assert format_duration(59) == "59秒"
+    assert format_duration(3600) == "1小时"
+    assert format_duration(90000) == "1天1小时"

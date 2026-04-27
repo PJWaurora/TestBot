@@ -71,6 +71,20 @@ curl -X POST http://localhost:8000/chat \
   -d '{"text": "/tool-echo runtime"}'
 ```
 
+The deterministic Bilibili module detects BV IDs, `bilibili.com/video/...`, and
+`b23.tv/...` links. The TeamSpeak module handles `查询人数`, `查询人类`,
+`ts状态`, `ts人数`, and `ts帮助`. TeamSpeak querying is optional and uses these
+environment variables when enabled:
+
+```text
+TS3_HOST
+TS3_QUERY_PORT
+TS3_QUERY_USER
+TS3_QUERY_PASSWORD
+TS3_VIRTUAL_SERVER_ID
+TS3_TIMEOUT
+```
+
 ## Tests
 
 Run Go tests:

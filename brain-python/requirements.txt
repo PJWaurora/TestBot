@@ -1,4 +1,5 @@
 fastapi
 httpx
 pytest
+ts3
 uvicorn[standard]
