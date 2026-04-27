@@ -138,7 +138,7 @@ class TSPersonModule:
 
     def __init__(self, provider: StatusProvider | None = None, config: TS3Config | None = None) -> None:
         self.provider = provider
-        self.config = config or TS3Config.from_env()
+        self.config = config
 
     def detect(self, text: str) -> bool:
         stripped = text.strip()
@@ -155,7 +155,8 @@ class TSPersonModule:
         if action == "help":
             return {"tool_name": TOOL_NAME, "ok": True, "action": "help", "message": HELP_TEXT}
 
-        missing = self.config.missing_fields()
+        config = self.config or TS3Config.from_env()
+        missing = config.missing_fields()
         if self.provider is None and missing:
             return {
                 "tool_name": TOOL_NAME,
@@ -166,7 +167,7 @@ class TSPersonModule:
                 "message": MISSING_CONFIG_TEXT,
             }
 
-        provider = self.provider or TS3StatusProvider(self.config)
+        provider = self.provider or TS3StatusProvider(config)
         try:
             status = provider.get_status()
         except Exception as exc:

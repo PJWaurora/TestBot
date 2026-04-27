@@ -12,6 +12,7 @@ import (
 )
 
 type IncomingMessage struct {
+	SelfID           int64
 	PostType         string
 	MessageType      string
 	SubType          string
@@ -65,6 +66,7 @@ func NormalizeBytes(data []byte) (IncomingMessage, error) {
 
 func NormalizeEvent(event models.BaseEvent) IncomingMessage {
 	message := IncomingMessage{
+		SelfID:      event.SelfID,
 		PostType:    event.PostType,
 		MessageType: event.MessageType,
 		SubType:     event.SubType,

@@ -53,6 +53,7 @@ func TestPostMessageSendsNormalizedEnvelopeWithStringIDs(t *testing.T) {
 
 	message, err := normalizer.NormalizeBytes([]byte(`{
 		"post_type": "message",
+		"self_id": 42,
 		"message_type": "group",
 		"sub_type": "normal",
 		"message_id": 9007199254740993,
@@ -88,6 +89,7 @@ func TestPostMessageSendsNormalizedEnvelopeWithStringIDs(t *testing.T) {
 	}
 
 	assertStringField(t, captured, "message_id", "9007199254740993")
+	assertStringField(t, captured, "self_id", "42")
 	assertStringField(t, captured, "user_id", "9")
 	assertStringField(t, captured, "group_id", "8")
 	assertStringField(t, captured, "reply_to_message_id", "321")

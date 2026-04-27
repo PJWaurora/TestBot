@@ -53,6 +53,10 @@ python3 -m venv .venv
 .venv/bin/python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
+`brain-python/.env` is loaded by the FastAPI app for local runs. In Docker,
+the root `.env` is used for Compose interpolation; Brain runtime settings such
+as TS3 credentials and module group policies live in `brain-python/.env`.
+
 Health check:
 
 ```bash
@@ -83,6 +87,72 @@ TS3_QUERY_USER
 TS3_QUERY_PASSWORD
 TS3_VIRTUAL_SERVER_ID
 TS3_TIMEOUT
+```
+
+Plain text that does not match a deterministic module or fake planner command
+is intentionally silent. Brain runtime settings live in `brain-python/.env`.
+Per-module group policies can be configured with environment variables:
+
+```text
+BRAIN_GROUP_ALLOWLIST
+BRAIN_GROUP_BLOCKLIST
+BILIBILI_GROUP_ALLOWLIST
+BILIBILI_GROUP_BLOCKLIST
+TSPERSON_GROUP_ALLOWLIST
+TSPERSON_GROUP_BLOCKLIST
+```
+
+Use comma, semicolon, or whitespace separated group IDs. Blocklists win over
+allowlists. Empty allowlists mean the module is allowed in all groups.
+
+## Docker Compose
+
+Copy the root example env file before running Docker:
+
+```bash
+cp .env.example .env
+```
+
+The compose setup is local-development friendly:
+
+- `brain-python` bind-mounts `./brain-python` into `/app` and runs uvicorn with reload.
+- root `.env` configures Compose interpolation; `brain-python/.env` configures Brain runtime env.
+- `gateway-go` bind-mounts `./gateway-go` into `/src` and runs `go run .` with named Go cache volumes.
+- database migrations are mounted into a one-shot `migrate` service.
+- NapCat stores QQ data, config, and plugins under `${NAPCAT_DATA_DIR:-./napcat}`.
+
+Docker build proxy variables in the root `.env` are optional. Leave them blank
+unless the build needs to reach a local proxy; set `DOCKER_BUILD_NETWORK=host`
+only for that local-proxy case.
+
+Start Postgres, Brain, and Gateway:
+
+```bash
+docker compose up -d postgres brain-python gateway-go
+```
+
+Run SQL migrations on a fresh database:
+
+```bash
+docker compose --profile tools run --rm migrate
+```
+
+Start NapCat only when you want Docker-managed NapCat:
+
+```bash
+docker compose --profile napcat up -d napcat
+```
+
+When NapCat runs in the same compose project, configure its WebSocket client to:
+
+```text
+ws://gateway-go:808/ws
+```
+
+When NapCat runs outside compose on the host, use:
+
+```text
+ws://127.0.0.1:808/ws
 ```
 
 ## Tests

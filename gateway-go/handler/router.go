@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"log"
 	"os"
 	"strings"
@@ -30,13 +31,23 @@ func GetEventType(event BaseEvent) string {
 }
 
 func Dispatch(data []byte) []napcat.Action {
+	if ignore, err := ignoreBeforeNormalize(data); err == nil && ignore {
+		return nil
+	}
+
 	message, err := normalizer.NormalizeBytes(data)
 	if err != nil {
 		log.Printf("解析基础事件失败 (Failed to unmarshal base event): %v", err)
 		return nil
 	}
 
-	if message.PostType == "meta_event" {
+	if message.PostType != "message" {
+		return nil
+	}
+	if message.MessageType != "group" && message.MessageType != "private" {
+		return nil
+	}
+	if message.SelfID != 0 && message.UserID == message.SelfID {
 		return nil
 	}
 
@@ -79,6 +90,30 @@ func Dispatch(data []byte) []napcat.Action {
 	return nil
 }
 
+type dispatchEnvelope struct {
+	PostType    string `json:"post_type"`
+	MessageType string `json:"message_type"`
+	SelfID      int64  `json:"self_id"`
+	UserID      int64  `json:"user_id"`
+}
+
+func ignoreBeforeNormalize(data []byte) (bool, error) {
+	var envelope dispatchEnvelope
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return false, err
+	}
+	if envelope.PostType != "message" {
+		return true, nil
+	}
+	if envelope.MessageType != "group" && envelope.MessageType != "private" {
+		return true, nil
+	}
+	if envelope.SelfID != 0 && envelope.UserID == envelope.SelfID {
+		return true, nil
+	}
+	return false, nil
+}
+
 func DispatchBrain(message normalizer.IncomingMessage) ([]napcat.Action, bool) {
 	baseURL := strings.TrimSpace(os.Getenv("BRAIN_BASE_URL"))
 	if baseURL == "" {
@@ -100,7 +135,7 @@ func DispatchBrain(message normalizer.IncomingMessage) ([]napcat.Action, bool) {
 		return nil, true
 	}
 	if response == nil || !response.Handled {
-		return nil, false
+		return nil, true
 	}
 	if !response.ShouldReply {
 		return nil, true

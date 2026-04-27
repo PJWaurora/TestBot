@@ -54,6 +54,7 @@ class BrainResponse(BaseModel):
 
 
 class ChatRequest(BaseModel):
+    self_id: str | int | None = None
     text: str = ""
     content: str = ""
     message: BrainMessage | None = None

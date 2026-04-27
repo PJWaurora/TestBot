@@ -14,15 +14,15 @@ def test_health() -> None:
     assert response.json() == {"status": "ok"}
 
 
-def test_chat_replies_to_text() -> None:
+def test_chat_silences_plain_text_without_route() -> None:
     response = client.post("/chat", json={"text": "hello"})
 
     assert response.status_code == 200
     body = response.json()
-    assert body["handled"] is True
-    assert body["should_reply"] is True
-    assert body["reply"] == "收到：hello"
-    assert body["messages"] == [{"type": "text", "text": "收到：hello"}]
+    assert body["handled"] is False
+    assert body["should_reply"] is False
+    assert body["metadata"] == {"reason": "no_route"}
+    assert "messages" not in body
 
 
 def test_chat_does_not_reply_to_empty_text() -> None:
@@ -51,9 +51,9 @@ def test_chat_accepts_normalized_message_envelope() -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["handled"] is True
-    assert body["reply"] == "收到：hello from envelope"
-    assert body["messages"][0]["text"] == "收到：hello from envelope"
+    assert body["handled"] is False
+    assert body["should_reply"] is False
+    assert body["metadata"] == {"reason": "no_route"}
 
 
 def test_chat_uses_latest_normalized_message() -> None:
@@ -69,8 +69,9 @@ def test_chat_uses_latest_normalized_message() -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["reply"] == "收到：latest"
-    assert body["messages"][0]["text"] == "收到：latest"
+    assert body["handled"] is False
+    assert body["should_reply"] is False
+    assert body["metadata"] == {"reason": "no_route"}
 
 
 def test_tools_are_listed() -> None:
@@ -207,6 +208,82 @@ def test_tsperson_help_command() -> None:
     body = response.json()
     assert body["handled"] is True
     assert "查询人数" in body["reply"]
+
+
+def test_module_group_blocklist_silences_matching_module(monkeypatch) -> None:
+    monkeypatch.setenv("TSPERSON_GROUP_BLOCKLIST", "8")
+
+    response = client.post("/chat", json={"text": "查询人数", "group_id": "8", "message_type": "group"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert body["should_reply"] is False
+    assert body["metadata"] == {
+        "module": "tsperson",
+        "group_policy": "blocked",
+        "group_id": "8",
+    }
+
+
+def test_module_group_allowlist_silences_groups_not_in_list(monkeypatch) -> None:
+    monkeypatch.setenv("TSPERSON_GROUP_ALLOWLIST", "9")
+
+    response = client.post("/chat", json={"text": "查询人数", "group_id": "8", "message_type": "group"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert body["should_reply"] is False
+    assert body["metadata"]["group_policy"] == "blocked"
+
+
+def test_module_group_allowlist_does_not_block_private_messages(monkeypatch) -> None:
+    monkeypatch.setenv("TSPERSON_GROUP_ALLOWLIST", "9")
+    for key in (
+        "TS3_HOST",
+        "TSPERSON_HOST",
+        "TS3_QUERY_USER",
+        "TSPERSON_QUERY_USER",
+        "TS3_QUERY_PASSWORD",
+        "TSPERSON_QUERY_PASSWORD",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    response = client.post("/chat", json={"text": "查询人数", "message_type": "private"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert body["should_reply"] is True
+    assert body["metadata"]["module"] == "tsperson"
+    assert body["metadata"]["error"] == "missing_config"
+
+
+def test_module_policy_uses_context_from_selected_message(monkeypatch) -> None:
+    monkeypatch.setenv("TSPERSON_GROUP_ALLOWLIST", "9")
+
+    response = client.post(
+        "/chat",
+        json={
+            "group_id": "9",
+            "message_type": "group",
+            "messages": [
+                {"text": "older", "group_id": "9", "message_type": "group"},
+                {"text": "ts帮助", "group_id": "8", "message_type": "group"},
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert body["should_reply"] is False
+    assert body["metadata"] == {
+        "module": "tsperson",
+        "group_policy": "blocked",
+        "group_id": "8",
+    }
 
 
 def test_tsperson_tool_is_listed_and_callable_when_unconfigured(monkeypatch) -> None:

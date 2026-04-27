@@ -1,3 +1,4 @@
+from dataclasses import dataclass
 from typing import Any, Protocol
 
 from schemas import BrainResponse
@@ -5,6 +6,13 @@ from schemas import BrainResponse
 
 ModuleArguments = dict[str, Any]
 ModuleResult = dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ModuleContext:
+    group_id: str = ""
+    user_id: str = ""
+    message_type: str = ""
 
 
 class DeterministicModule(Protocol):

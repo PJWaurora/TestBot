@@ -170,6 +170,7 @@ func statusError(resp *http.Response) error {
 }
 
 type Envelope struct {
+	SelfID           string                  `json:"self_id,omitempty"`
 	PostType         string                  `json:"post_type,omitempty"`
 	MessageType      string                  `json:"message_type,omitempty"`
 	SubType          string                  `json:"sub_type,omitempty"`
@@ -219,6 +220,7 @@ type Video struct {
 
 func NewEnvelope(message normalizer.IncomingMessage) Envelope {
 	return Envelope{
+		SelfID:           idString(message.SelfID),
 		PostType:         message.PostType,
 		MessageType:      message.MessageType,
 		SubType:          message.SubType,
