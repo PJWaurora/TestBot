@@ -98,3 +98,64 @@ func TestBrainMessageItemsToCQStringRejectsUnsupportedItems(t *testing.T) {
 		t.Fatal("image item without file/url returned ok=true")
 	}
 }
+
+func TestNewOutboxActionBuildsGroupAction(t *testing.T) {
+	action, err := NewOutboxAction(OutboxItem{
+		ID:         42,
+		TargetType: "group",
+		TargetID:   "10001",
+		Messages: []BrainMessageItem{
+			{Type: "text", Text: "hello"},
+			{Type: "image", URL: "https://example.test/a.png"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewOutboxAction error = %v", err)
+	}
+	if action.Action != "send_group_msg" {
+		t.Fatalf("action = %q, want send_group_msg", action.Action)
+	}
+
+	params, ok := action.Params.(SendGroupMessageParams)
+	if !ok {
+		t.Fatalf("params type = %T, want SendGroupMessageParams", action.Params)
+	}
+	want := "hello[CQ:image,file=https://example.test/a.png]"
+	if params.GroupID != 10001 || params.Message != want {
+		t.Fatalf("params = %+v, want group_id=10001 message=%s", params, want)
+	}
+}
+
+func TestNewOutboxActionBuildsPrivateAction(t *testing.T) {
+	action, err := NewOutboxAction(OutboxItem{
+		ID:         43,
+		TargetType: "private",
+		TargetID:   "9",
+		Messages:   []BrainMessageItem{{Type: "text", Content: "hello"}},
+	})
+	if err != nil {
+		t.Fatalf("NewOutboxAction error = %v", err)
+	}
+
+	params, ok := action.Params.(SendPrivateMessageParams)
+	if !ok {
+		t.Fatalf("params type = %T, want SendPrivateMessageParams", action.Params)
+	}
+	if params.UserID != 9 || params.Message != "hello" {
+		t.Fatalf("params = %+v, want user_id=9 message=hello", params)
+	}
+}
+
+func TestNewOutboxActionRejectsInvalidItems(t *testing.T) {
+	cases := []OutboxItem{
+		{ID: 1, TargetType: "channel", TargetID: "1", Messages: []BrainMessageItem{{Type: "text", Text: "hello"}}},
+		{ID: 2, TargetType: "group", TargetID: "abc", Messages: []BrainMessageItem{{Type: "text", Text: "hello"}}},
+		{ID: 3, TargetType: "group", TargetID: "1", Messages: []BrainMessageItem{{Type: "audio", File: "a.mp3"}}},
+	}
+
+	for _, item := range cases {
+		if _, err := NewOutboxAction(item); err == nil {
+			t.Fatalf("NewOutboxAction(%+v) error is nil, want error", item)
+		}
+	}
+}

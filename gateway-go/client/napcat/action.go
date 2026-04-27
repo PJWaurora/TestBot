@@ -2,6 +2,7 @@ package napcat
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -39,6 +40,13 @@ type BrainMessageItem struct {
 	Path    string                 `json:"path,omitempty"`
 	Name    string                 `json:"name,omitempty"`
 	Data    map[string]interface{} `json:"data,omitempty"`
+}
+
+type OutboxItem struct {
+	ID         int64              `json:"id"`
+	TargetType string             `json:"target_type"`
+	TargetID   string             `json:"target_id"`
+	Messages   []BrainMessageItem `json:"messages"`
 }
 
 func NewSendTextAction(messageType string, userID, groupID int64, replyText string) (Action, bool) {
@@ -83,6 +91,39 @@ func NewSendMessageItemsAction(messageType string, userID, groupID int64, items 
 	}
 
 	return NewSendTextAction(messageType, userID, groupID, message)
+}
+
+func NewOutboxAction(item OutboxItem) (Action, error) {
+	targetType := strings.ToLower(strings.TrimSpace(item.TargetType))
+	targetIDText := strings.TrimSpace(item.TargetID)
+	if targetIDText == "" {
+		return Action{}, fmt.Errorf("outbox item %d has empty target_id", item.ID)
+	}
+
+	targetID, err := strconv.ParseInt(targetIDText, 10, 64)
+	if err != nil || targetID <= 0 {
+		if err == nil {
+			err = fmt.Errorf("must be positive")
+		}
+		return Action{}, fmt.Errorf("outbox item %d has invalid target_id %q: %w", item.ID, item.TargetID, err)
+	}
+
+	switch targetType {
+	case "group":
+		action, ok := NewSendMessageItemsAction("group", 0, targetID, item.Messages)
+		if !ok {
+			return Action{}, fmt.Errorf("outbox item %d cannot be converted to group message", item.ID)
+		}
+		return action, nil
+	case "private":
+		action, ok := NewSendMessageItemsAction("private", targetID, 0, item.Messages)
+		if !ok {
+			return Action{}, fmt.Errorf("outbox item %d cannot be converted to private message", item.ID)
+		}
+		return action, nil
+	default:
+		return Action{}, fmt.Errorf("outbox item %d has unsupported target_type %q", item.ID, item.TargetType)
+	}
 }
 
 func BrainMessageItemsToCQString(items []BrainMessageItem) (string, bool) {

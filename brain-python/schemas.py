@@ -1,4 +1,5 @@
 from typing import Any
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -94,3 +95,20 @@ class ChatResponse(BrainResponse):
 class ToolCallRequest(BaseModel):
     name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
+
+
+class OutboxPullItem(BaseModel):
+    id: int
+    target_type: Literal["private", "group"]
+    target_id: str
+    messages: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class OutboxAckRequest(BaseModel):
+    ids: list[int] = Field(default_factory=list)
+    success: bool
+    error: str | None = None
+
+
+class OutboxAckResponse(BaseModel):
+    acked: int

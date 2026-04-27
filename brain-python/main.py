@@ -4,11 +4,16 @@ from schemas import (
     BrainResponse,
     ChatRequest,
     HealthResponse,
+    OutboxAckRequest,
+    OutboxAckResponse,
+    OutboxPullItem,
     ToolCallRequest,
     ToolDefinition,
     ToolResult,
 )
 from services.chat import build_chat_response
+from services.outbox import ack as ack_outbox
+from services.outbox import pull as pull_outbox
 from services.tools import call_tool, list_tools
 
 app = FastAPI(title="TestBot Python Brain")
@@ -32,3 +37,14 @@ def tools() -> list[ToolDefinition]:
 @app.post("/tools/call", response_model=ToolResult, response_model_exclude_none=True, response_model_exclude_defaults=True)
 def tools_call(request: ToolCallRequest) -> ToolResult:
     return call_tool(request)
+
+
+@app.get("/outbox/pull", response_model=list[OutboxPullItem])
+def outbox_pull(limit: int = 10) -> list[dict[str, object]]:
+    return pull_outbox(limit=limit)
+
+
+@app.post("/outbox/ack", response_model=OutboxAckResponse)
+def outbox_ack(request: OutboxAckRequest) -> OutboxAckResponse:
+    acked = ack_outbox(ids=request.ids, success=request.success, error=request.error)
+    return OutboxAckResponse(acked=acked)

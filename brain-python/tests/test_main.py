@@ -5,6 +5,7 @@ from modules.registry import DeterministicModuleRegistry
 from modules.summary import SummaryModule
 from schemas import BrainResponse, ChatRequest
 from services.chat import reset_chat_repository, set_chat_repository
+from services.outbox import reset_outbox_repository, set_outbox_repository
 from services.persistence import PostgresChatRepository, _conversation_key, _request_metadata, _request_text
 
 
@@ -93,11 +94,109 @@ class CapturingConnection:
         return self._cursor
 
 
+class FakeOutboxRepository:
+    def __init__(self) -> None:
+        self.pulled_limits: list[int] = []
+        self.acks: list[dict[str, object]] = []
+
+    def enqueue(
+        self,
+        *,
+        target_type: str,
+        target_id: str,
+        messages: list[dict[str, object]],
+        actions: list[dict[str, object]] | None = None,
+        available_at: object | None = None,
+    ) -> int:
+        return 123
+
+    def pull(self, *, limit: int = 10) -> list[dict[str, object]]:
+        self.pulled_limits.append(limit)
+        return [
+            {
+                "id": 123,
+                "target_type": "group",
+                "target_id": "10001",
+                "messages": [{"type": "text", "text": "hello"}],
+                "actions": [{"type": "ignored-by-api-contract"}],
+            }
+        ]
+
+    def ack(self, *, ids: list[int], success: bool, error: str | None = None) -> int:
+        self.acks.append({"ids": ids, "success": success, "error": error})
+        return len(ids)
+
+
 def test_health() -> None:
     response = client.get("/health")
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_outbox_pull_returns_items_from_repository() -> None:
+    repository = FakeOutboxRepository()
+    set_outbox_repository(repository)
+    try:
+        response = client.get("/outbox/pull?limit=5")
+    finally:
+        reset_outbox_repository()
+
+    assert response.status_code == 200
+    assert response.json() == [
+        {
+            "id": 123,
+            "target_type": "group",
+            "target_id": "10001",
+            "messages": [{"type": "text", "text": "hello"}],
+        }
+    ]
+    assert repository.pulled_limits == [5]
+
+
+def test_outbox_ack_passes_success_to_repository() -> None:
+    repository = FakeOutboxRepository()
+    set_outbox_repository(repository)
+    try:
+        response = client.post("/outbox/ack", json={"ids": [123], "success": True})
+    finally:
+        reset_outbox_repository()
+
+    assert response.status_code == 200
+    assert response.json() == {"acked": 1}
+    assert repository.acks == [{"ids": [123], "success": True, "error": None}]
+
+
+def test_outbox_ack_passes_failure_error_to_repository() -> None:
+    repository = FakeOutboxRepository()
+    set_outbox_repository(repository)
+    try:
+        response = client.post(
+            "/outbox/ack",
+            json={"ids": [123, 124], "success": False, "error": "send failed"},
+        )
+    finally:
+        reset_outbox_repository()
+
+    assert response.status_code == 200
+    assert response.json() == {"acked": 2}
+    assert repository.acks == [
+        {"ids": [123, 124], "success": False, "error": "send failed"}
+    ]
+
+
+def test_outbox_no_repository_returns_empty_pull_and_accepted_ack() -> None:
+    set_outbox_repository(None)
+    try:
+        pull_response = client.get("/outbox/pull")
+        ack_response = client.post("/outbox/ack", json={"ids": [123], "success": True})
+    finally:
+        reset_outbox_repository()
+
+    assert pull_response.status_code == 200
+    assert pull_response.json() == []
+    assert ack_response.status_code == 200
+    assert ack_response.json() == {"acked": 1}
 
 
 def test_chat_replies_to_text() -> None:
