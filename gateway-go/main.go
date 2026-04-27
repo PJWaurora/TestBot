@@ -5,6 +5,8 @@ import (
 	handler "gateway/handler"
 	"log"
 	"net/http"
+	"sync"
+	"time"
 
 	"github.com/gorilla/websocket"
 )
@@ -14,6 +16,8 @@ var upgrader = websocket.Upgrader{
 		return true
 	},
 }
+
+const writeWait = 10 * time.Second
 
 type job struct {
 	data      []byte
@@ -30,6 +34,13 @@ func worker(int) {
 		// 所有的业务逻辑都在这里运行
 		for _, action := range handler.Dispatch(msg.data) {
 			select {
+			case <-msg.done:
+				log.Printf("连接已关闭，丢弃 NapCat action: %s", action.Action)
+				continue
+			default:
+			}
+
+			select {
 			case msg.sendQueue <- action:
 			case <-msg.done:
 				log.Printf("连接已关闭，丢弃 NapCat action: %s", action.Action)
@@ -38,10 +49,19 @@ func worker(int) {
 	}
 }
 
-func writeLoop(conn *websocket.Conn, sendQueue <-chan napcat.Action, done <-chan struct{}) {
+func writeLoop(conn *websocket.Conn, sendQueue <-chan napcat.Action, done <-chan struct{}, closeSession func()) {
+	defer closeSession()
+
 	for {
 		select {
-		case action := <-sendQueue:
+		case action, ok := <-sendQueue:
+			if !ok {
+				return
+			}
+			if err := conn.SetWriteDeadline(time.Now().Add(writeWait)); err != nil {
+				log.Printf("设置 WebSocket 写超时失败: %v", err)
+				return
+			}
 			if err := conn.WriteJSON(action); err != nil {
 				log.Printf("写入 NapCat action 失败: %v", err)
 				return
@@ -68,8 +88,15 @@ func main() {
 		defer conn.Close()
 		sendQueue := make(chan napcat.Action, 100)
 		done := make(chan struct{})
-		go writeLoop(conn, sendQueue, done)
-		defer close(done)
+		var closeOnce sync.Once
+		closeSession := func() {
+			closeOnce.Do(func() {
+				close(done)
+				_ = conn.Close()
+			})
+		}
+		go writeLoop(conn, sendQueue, done, closeSession)
+		defer closeSession()
 
 		for {
 			_, message, err := conn.ReadMessage()
@@ -79,10 +106,14 @@ func main() {
 			}
 
 			//log.Println("收到消息:", string(message))
-			jobQueue <- job{
+			select {
+			case jobQueue <- job{
 				data:      message,
 				sendQueue: sendQueue,
 				done:      done,
+			}:
+			case <-done:
+				return
 			}
 		}
 
