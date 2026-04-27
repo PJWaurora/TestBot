@@ -5,6 +5,7 @@ from schemas import BrainResponse
 from modules.bilibili import BilibiliModule
 from modules.base import DeterministicModule
 from modules.echo import ToolEchoModule
+from modules.tsperson import TSPersonModule
 
 
 class DeterministicModuleRegistry:
@@ -12,6 +13,7 @@ class DeterministicModuleRegistry:
         self._modules = list(modules) if modules is not None else [
             ToolEchoModule(),
             BilibiliModule(),
+            TSPersonModule(),
         ]
 
     def resolve(self, text: str) -> DeterministicModule | None:
