@@ -6,6 +6,7 @@ This guide covers the current split-service deployment model:
 - Bilibili module service: `PJWaurora/testbot-module-bilibili`.
 - TSPerson module service: `PJWaurora/testbot-module-tsperson`.
 - Rust renderer service: `PJWaurora/testbot-render-service`.
+- Media service: `PJWaurora/testbot-media-service`.
 
 The renderer is not a Brain module. Brain talks only to module services. Module
 services optionally call the renderer and return image URLs through the normal
@@ -21,7 +22,8 @@ workspace/
 ├── TestBot/
 ├── testbot-module-bilibili/
 ├── testbot-module-tsperson/
-└── testbot-render-service/
+├── testbot-render-service/
+└── testbot-media-service/
 ```
 
 Default compose paths expect exactly this layout:
@@ -30,6 +32,7 @@ Default compose paths expect exactly this layout:
 BILIBILI_MODULE_CONTEXT=../testbot-module-bilibili
 TSPERSON_MODULE_CONTEXT=../testbot-module-tsperson
 RENDER_SERVICE_CONTEXT=../testbot-render-service
+MEDIA_SERVICE_CONTEXT=../testbot-media-service
 ```
 
 ## Configuration Files
@@ -38,7 +41,8 @@ There are three configuration layers.
 
 Root `.env` in `TestBot/` is used by Docker Compose interpolation. It controls
 service ports, build contexts, Docker build proxy variables, module service
-registration, and renderer wiring.
+registration, the shared outbox token, renderer wiring, and media service
+wiring.
 
 `brain-python/.env` is loaded by the Python Brain process for local runtime
 configuration. In Docker, the compose overlays pass the most important Brain
@@ -72,6 +76,7 @@ GATEWAY_IMAGE=testbot-gateway-go:latest
 BILIBILI_MODULE_IMAGE=testbot-module-bilibili:latest
 TSPERSON_MODULE_IMAGE=testbot-module-tsperson:latest
 RENDER_SERVICE_IMAGE=testbot-renderer-rust:latest
+MEDIA_SERVICE_IMAGE=testbot-media-service:latest
 NAPCAT_IMAGE=mlikiowa/napcat-docker:latest
 ```
 
@@ -82,10 +87,13 @@ renderer are separate images because they are separate service repositories.
 ## Core Only
 
 Core-only mode runs Postgres, Python Brain, and Go Gateway. It does not start
-Bilibili, TSPerson, or the renderer.
+Bilibili, TSPerson, or the renderer. On a fresh database, or after pulling new
+SQL migrations, run the migration job before starting Brain:
 
 ```bash
-docker compose up -d postgres brain-python gateway-go
+docker compose up -d postgres
+docker compose --profile tools run --rm migrate
+docker compose up -d brain-python gateway-go
 ```
 
 In this mode Brain loads only the local fake echo module. Normal text, Bilibili
@@ -133,6 +141,7 @@ BRAIN_MODULE_SERVICES=bilibili=http://module-bilibili:8011,tsperson=http://modul
 BRAIN_MODULE_TIMEOUT=5
 BILIBILI_MODULE_PORT=8011
 TSPERSON_MODULE_PORT=8012
+OUTBOX_TOKEN=<random-shared-token>
 ```
 
 Start core plus modules:
@@ -153,6 +162,32 @@ Brain applies group allow/block policy before calling remote modules. Remote
 module timeouts, connection failures, non-2xx responses, and invalid JSON are
 treated as no reply. Brain does not retry remote module calls, which avoids
 duplicate QQ messages.
+
+## Brain Outbox
+
+Brain exposes an authenticated outbox for async messages:
+
+```text
+POST /outbox/enqueue
+POST /outbox/pull
+POST /outbox/{id}/ack
+POST /outbox/{id}/fail
+```
+
+All outbox endpoints require `Authorization: Bearer <OUTBOX_TOKEN>` or
+`X-Outbox-Token: <OUTBOX_TOKEN>`. Use the same `OUTBOX_TOKEN` for
+`brain-python`, `gateway-go`, and producers such as `testbot-media`.
+
+`/outbox/enqueue` accepts `message_type` (`group` or `private`), the target
+`group_id` or `user_id`, and `messages` using the existing Brain message shape.
+Outbox messages support `text`, `image`, and `video`; image/video messages must
+include `file`, `url`, or `path`.
+
+Gateway polls `/outbox/pull` every 3 seconds while a NapCat WebSocket session is
+connected. It converts pulled Brain messages to the existing CQ send action,
+acks after the action is accepted into the send queue, and calls `fail` when the
+item cannot be converted or queued. Brain marks an item as `failed` after 5
+failed delivery attempts.
 
 ## Bilibili Module
 
@@ -175,10 +210,45 @@ BILIBILI_TRUST_ENV_PROXY=false
 BILIBILI_VIDEO_DETAIL_TIMEOUT=5
 BILIBILI_VIDEO_DETAIL_TRUST_ENV_PROXY=false
 BILIBILI_COMMAND_PREFIXES=/,.
+BILIBILI_AUTO_DOWNLOAD_ENABLED=false
+BILIBILI_DOWNLOAD_GROUP_ALLOWLIST=
+BILIBILI_DOWNLOAD_MAX_DURATION_SECONDS=180
+BILIBILI_DOWNLOAD_MAX_BYTES=52428800
+BILIBILI_DOWNLOAD_QUALITY=480p
+BILIBILI_MEDIA_BASE_URL=http://testbot-media:8030
 ```
 
 Use group allow/block lists when the module should only run in specific groups.
 Blocklists win over allowlists. Empty allowlists mean all groups are allowed.
+
+## Media Service
+
+Media mode adds `testbot-media` for async media workflows that enqueue
+text/image/video messages back to Brain outbox.
+
+Root `.env`:
+
+```env
+MEDIA_SERVICE_CONTEXT=../testbot-media-service
+MEDIA_SERVICE_IMAGE=testbot-media-service:latest
+MEDIA_SERVICE_PORT=8030
+MEDIA_PUBLIC_BASE_URL=http://testbot-media:8030
+OUTBOX_TOKEN=<random-shared-token>
+```
+
+Start core, modules, and media. Run migrations first if this is a fresh
+database or if `database/migrations/` changed:
+
+```bash
+docker compose up -d postgres
+docker compose --profile tools run --rm migrate
+docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.media.yml up -d
+```
+
+The media overlay passes `BRAIN_BASE_URL`, `PYTHON_BRAIN_URL`, and
+`OUTBOX_TOKEN` to `testbot-media`. The service also loads
+`config/modules/bilibili.env`, so Bilibili-related media settings can stay with
+the Bilibili module configuration.
 
 ## TSPerson Module
 
@@ -197,7 +267,7 @@ Put TeamSpeak ServerQuery credentials in `config/modules/tsperson.env`:
 
 ```env
 TS3_HOST=<teamspeak-host>
-TS3_QUERY_PORT=13986
+TS3_QUERY_PORT=10011
 TS3_QUERY_USER=
 TS3_QUERY_PASSWORD=
 TS3_VIRTUAL_SERVER_ID=1
@@ -344,6 +414,7 @@ cd brain-python && .venv/bin/python -m pytest
 docker compose config
 docker compose -f docker-compose.yml -f docker-compose.modules.yml config
 docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml config
+docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.media.yml config
 ```
 
 Bilibili module:
@@ -400,6 +471,14 @@ Renderer image is not sent:
 - Verify module logs show a successful render response.
 - Verify `RENDERER_PUBLIC_BASE_URL` is reachable from NapCat.
 - Verify `GET /v1/assets/{id}.png` returns `image/png`.
+
+Outbox item is not sent:
+
+- Verify `OUTBOX_TOKEN` is set to the same value in Brain, Gateway, and the
+  outbox producer.
+- Verify NapCat is connected to Gateway; Gateway polls only while a WebSocket
+  session is active.
+- Check Brain `message_outbox.status`, `attempts`, and `last_error`.
 
 Docker build cannot download dependencies:
 

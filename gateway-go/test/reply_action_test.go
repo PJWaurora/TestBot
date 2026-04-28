@@ -1,6 +1,7 @@
 package test
 
 import (
+	"gateway/client/brain"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -217,5 +218,40 @@ func TestDispatchBrainTreatsUnhandledResponseAsHandled(t *testing.T) {
 	}
 	if len(actions) != 0 {
 		t.Fatalf("action count = %d, want 0", len(actions))
+	}
+}
+
+func TestOutboxActionUsesBrainMessageCQConversion(t *testing.T) {
+	action, ok := handler.OutboxAction(brain.OutboxItem{
+		ID:          7,
+		MessageType: "group",
+		GroupID:     "8",
+		Messages: []brain.Message{
+			{Type: "text", Text: "queued"},
+			{Type: "image", URL: "https://example.test/a,b.png"},
+			{Type: "video", File: "clip.mp4"},
+		},
+	})
+	if !ok {
+		t.Fatal("OutboxAction returned ok=false")
+	}
+
+	params, ok := action.Params.(napcat.SendGroupMessageParams)
+	if !ok {
+		t.Fatalf("params type = %T, want SendGroupMessageParams", action.Params)
+	}
+
+	want := "queued[CQ:image,file=https://example.test/a&#44;b.png][CQ:video,file=clip.mp4]"
+	if params.GroupID != 8 || params.Message != want {
+		t.Fatalf("params = %+v, want group_id=8 message=%s", params, want)
+	}
+}
+
+func TestOutboxActionRejectsInvalidTarget(t *testing.T) {
+	if _, ok := handler.OutboxAction(brain.OutboxItem{
+		MessageType: "group",
+		Messages:    []brain.Message{{Type: "text", Text: "queued"}},
+	}); ok {
+		t.Fatal("OutboxAction returned ok=true, want false")
 	}
 }

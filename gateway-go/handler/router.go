@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"log"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -197,4 +198,34 @@ func brainMessagesToNapcatItems(messages []brain.Message) []napcat.BrainMessageI
 		})
 	}
 	return items
+}
+
+func OutboxAction(item brain.OutboxItem) (napcat.Action, bool) {
+	userID, ok := parseOutboxID(item.UserID)
+	if !ok && item.MessageType == "private" {
+		return napcat.Action{}, false
+	}
+	groupID, ok := parseOutboxID(item.GroupID)
+	if !ok && item.MessageType == "group" {
+		return napcat.Action{}, false
+	}
+
+	return napcat.NewSendMessageItemsAction(
+		item.MessageType,
+		userID,
+		groupID,
+		brainMessagesToNapcatItems(item.Messages),
+	)
+}
+
+func parseOutboxID(value string) (int64, bool) {
+	text := strings.TrimSpace(value)
+	if text == "" {
+		return 0, false
+	}
+	id, err := strconv.ParseInt(text, 10, 64)
+	if err != nil || id == 0 {
+		return 0, false
+	}
+	return id, true
 }

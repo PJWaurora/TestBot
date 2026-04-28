@@ -23,9 +23,10 @@ const (
 )
 
 type Client struct {
-	baseURL    *url.URL
-	endpoint   string
-	httpClient *http.Client
+	baseURL     *url.URL
+	endpoint    string
+	outboxToken string
+	httpClient  *http.Client
 }
 
 type Option func(*Client) error
@@ -57,6 +58,13 @@ func WithHTTPClient(httpClient *http.Client) Option {
 			return fmt.Errorf("brain http client cannot be nil")
 		}
 		client.httpClient = httpClient
+		return nil
+	}
+}
+
+func WithOutboxToken(token string) Option {
+	return func(client *Client) error {
+		client.outboxToken = strings.TrimSpace(token)
 		return nil
 	}
 }
@@ -97,47 +105,108 @@ func (client *Client) PostEnvelope(ctx context.Context, envelope Envelope) (*Res
 	}
 
 	envelope.Segments = newSegments(envelope.Segments)
-	body, err := json.Marshal(envelope)
-	if err != nil {
-		return nil, fmt.Errorf("marshal brain envelope: %w", err)
+	var brainResp Response
+	if err := client.postJSON(ctx, client.endpoint, envelope, false, &brainResp); err != nil {
+		return nil, err
 	}
 
-	targetURL := client.url()
+	return &brainResp, nil
+}
+
+func (client *Client) PullOutbox(ctx context.Context, limit, leaseSeconds int) ([]OutboxItem, error) {
+	if limit <= 0 {
+		limit = 10
+	}
+	if leaseSeconds <= 0 {
+		leaseSeconds = 30
+	}
+
+	var response OutboxPullResponse
+	if err := client.postJSON(
+		ctx,
+		"/outbox/pull",
+		OutboxPullRequest{Limit: limit, LeaseSeconds: leaseSeconds},
+		true,
+		&response,
+	); err != nil {
+		return nil, err
+	}
+	return response.Items, nil
+}
+
+func (client *Client) AckOutbox(ctx context.Context, itemID int64) error {
+	var item OutboxItem
+	return client.postJSON(ctx, fmt.Sprintf("/outbox/%d/ack", itemID), struct{}{}, true, &item)
+}
+
+func (client *Client) FailOutbox(ctx context.Context, itemID int64, errorMessage string) error {
+	var item OutboxItem
+	return client.postJSON(
+		ctx,
+		fmt.Sprintf("/outbox/%d/fail", itemID),
+		OutboxFailRequest{Error: errorMessage},
+		true,
+		&item,
+	)
+}
+
+func (client *Client) postJSON(ctx context.Context, endpoint string, payload interface{}, useOutboxToken bool, out interface{}) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("marshal brain request: %w", err)
+	}
+
+	targetURL := client.endpointURL(endpoint)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL.String(), bytes.NewReader(body))
 	if err != nil {
-		return nil, fmt.Errorf("build brain request: %w", err)
+		return fmt.Errorf("build brain request: %w", err)
 	}
 	req.Header.Set("Accept", "application/json")
 	req.Header.Set("Content-Type", "application/json")
+	if useOutboxToken {
+		if client.outboxToken == "" {
+			return fmt.Errorf("outbox token is required")
+		}
+		req.Header.Set("Authorization", "Bearer "+client.outboxToken)
+	}
 
 	resp, err := client.httpClient.Do(req)
 	if err != nil {
 		if resp != nil && resp.Body != nil {
 			_ = resp.Body.Close()
 		}
-		return nil, fmt.Errorf("post brain envelope: %w", err)
+		return fmt.Errorf("post brain request: %w", err)
 	}
 	defer resp.Body.Close()
 
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
-		return nil, statusError(resp)
+		return statusError(resp)
 	}
 
-	var brainResp Response
-	if err := json.NewDecoder(resp.Body).Decode(&brainResp); err != nil {
-		return nil, fmt.Errorf("decode brain response: %w", err)
+	if out == nil {
+		return nil
 	}
-
-	return &brainResp, nil
+	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
+		return fmt.Errorf("decode brain response: %w", err)
+	}
+	return nil
 }
 
 func (client *Client) url() url.URL {
+	return client.endpointURL(client.endpoint)
+}
+
+func (client *Client) endpointURL(endpoint string) url.URL {
 	target := *client.baseURL
-	if client.endpoint == "" {
+	if endpoint == "" {
 		return target
 	}
 
-	target.Path = joinURLPath(target.Path, client.endpoint)
+	target.Path = joinURLPath(target.Path, endpoint)
 	return target
 }
 
@@ -445,4 +514,29 @@ type ToolCall struct {
 	ID        string                 `json:"id,omitempty"`
 	Name      string                 `json:"name,omitempty"`
 	Arguments map[string]interface{} `json:"arguments,omitempty"`
+}
+
+type OutboxPullRequest struct {
+	Limit        int `json:"limit,omitempty"`
+	LeaseSeconds int `json:"lease_seconds,omitempty"`
+}
+
+type OutboxPullResponse struct {
+	Items []OutboxItem `json:"items,omitempty"`
+}
+
+type OutboxFailRequest struct {
+	Error string `json:"error"`
+}
+
+type OutboxItem struct {
+	ID          int64     `json:"id"`
+	MessageType string    `json:"message_type"`
+	UserID      string    `json:"user_id,omitempty"`
+	GroupID     string    `json:"group_id,omitempty"`
+	Messages    []Message `json:"messages,omitempty"`
+	Status      string    `json:"status,omitempty"`
+	Attempts    int       `json:"attempts,omitempty"`
+	MaxAttempts int       `json:"max_attempts,omitempty"`
+	LastError   string    `json:"last_error,omitempty"`
 }

@@ -1,4 +1,5 @@
 from typing import Any
+from datetime import datetime
 
 from pydantic import BaseModel, Field
 
@@ -16,6 +17,7 @@ class BrainMessage(BaseModel):
     url: str = ""
     path: str = ""
     name: str = ""
+    data: dict[str, Any] = Field(default_factory=dict)
     user_id: str | int | None = None
     group_id: str | int | None = None
     conversation_id: str | None = None
@@ -83,3 +85,44 @@ class ChatResponse(BrainResponse):
 class ToolCallRequest(BaseModel):
     name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
+
+
+class OutboxEnqueueRequest(BaseModel):
+    message_type: str
+    user_id: str | int | None = None
+    group_id: str | int | None = None
+    messages: list[BrainMessage] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    max_attempts: int = Field(default=5, ge=1, le=100)
+
+
+class OutboxPullRequest(BaseModel):
+    limit: int = Field(default=10, ge=1, le=100)
+    lease_seconds: int = Field(default=30, ge=1, le=3600)
+
+
+class OutboxFailRequest(BaseModel):
+    error: str = ""
+
+
+class OutboxItem(BaseModel):
+    id: int
+    message_type: str
+    user_id: str | None = None
+    group_id: str | None = None
+    messages: list[BrainMessage] = Field(default_factory=list)
+    metadata: dict[str, Any] = Field(default_factory=dict)
+    status: str
+    attempts: int
+    max_attempts: int
+    last_error: str | None = None
+    next_attempt_at: datetime | None = None
+    locked_until: datetime | None = None
+    created_at: datetime
+    updated_at: datetime
+    sent_at: datetime | None = None
+    failed_at: datetime | None = None
+
+
+class OutboxPullResponse(BaseModel):
+    items: list[OutboxItem] = Field(default_factory=list)
