@@ -167,7 +167,9 @@ when the module repositories live elsewhere. The overlay publishes module ports
 with `BILIBILI_MODULE_PORT` and `TSPERSON_MODULE_PORT`, defaulting to `8011` and
 `8012`.
 
-Start the core services, module services, and optional Rust renderer service:
+Start the core services, module services, and optional Rust renderer service.
+The render file is an overlay, so use it together with the base and module
+compose files:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml up
@@ -184,12 +186,11 @@ Use `RENDER_SERVICE_CONTEXT` in the root `.env` when the renderer repository
 lives elsewhere. The overlay publishes the renderer port with
 `RENDER_SERVICE_PORT`, defaulting to `8020`, and stores generated assets in the
 `renderer-assets` volume. The renderer is configured separately from
-`BRAIN_MODULE_SERVICES`; enable module-side rendering with `RENDERER_ENABLED`
-and point modules at `RENDERER_INTERNAL_BASE_URL`. Set
+`BRAIN_MODULE_SERVICES`; enable module-side rendering in each module env file
+with `RENDERER_ENABLED=true` and point modules at
+`RENDERER_INTERNAL_BASE_URL=http://renderer-rust:8020`. Set
 `RENDERER_PUBLIC_BASE_URL` in the root `.env`; this is the URL embedded in image
-messages and must be reachable by NapCat. The render overlay passes renderer
-settings into `module-bilibili` and `module-tsperson`, but does not make Brain
-depend on the renderer service.
+messages and must be reachable by NapCat.
 
 Optional per-module env files live under `config/modules/`. Copy the examples
 when you need local module-specific settings:

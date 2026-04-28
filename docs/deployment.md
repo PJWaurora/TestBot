@@ -209,11 +209,17 @@ cards. It is optional and disabled by default.
 Root `.env`:
 
 ```env
+RENDERER_PUBLIC_BASE_URL=http://renderer-rust:8020
+RENDER_SERVICE_PORT=8020
+```
+
+Enable renderer output inside each module env that should generate cards:
+
+```env
+# config/modules/bilibili.env or config/modules/tsperson.env
 RENDERER_ENABLED=true
 RENDERER_INTERNAL_BASE_URL=http://renderer-rust:8020
-RENDERER_PUBLIC_BASE_URL=http://renderer-rust:8020
 RENDERER_TIMEOUT=3
-RENDER_SERVICE_PORT=8020
 ```
 
 Start core, modules, and renderer:
