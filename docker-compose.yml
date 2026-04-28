@@ -112,7 +112,7 @@ services:
         condition: service_healthy
 
   napcat:
-    image: ${NAPCAT_IMAGE:?set NAPCAT_IMAGE to a pinned NapCat image tag}
+    image: ${NAPCAT_IMAGE:-mlikiowa/napcat-docker:latest}
     profiles:
       - napcat
     restart: unless-stopped
