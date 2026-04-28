@@ -2,5 +2,4 @@ fastapi
 httpx
 pytest
 python-dotenv
-ts3
 uvicorn[standard]

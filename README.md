@@ -55,7 +55,7 @@ python3 -m venv .venv
 
 `brain-python/.env` is loaded by the FastAPI app for local runs. In Docker,
 the root `.env` is used for Compose interpolation; Brain runtime settings such
-as TS3 credentials and module group policies live in `brain-python/.env`.
+as remote module services and module group policies live in `brain-python/.env`.
 
 Health check:
 
@@ -63,9 +63,22 @@ Health check:
 curl http://localhost:8000/health
 ```
 
-### Brain Tool Runtime
+### Brain Module And Tool Runtime
 
-The Brain service exposes tools through `GET /tools` and `POST /tools/call`. Chat requests sent to `POST /chat` are resolved by the deterministic command router first; a matching command calls the selected tool, runs the tool result through a presenter, and returns the rendered `reply` and `messages`. Command signatures use `BRAIN_COMMAND_PREFIXES`, defaulting to `/` and `.`. When no deterministic command matches, the request falls back to the fake planner path.
+The Brain service exposes tools through `GET /tools` and `POST /tools/call`. Chat requests sent to `POST /chat` are resolved by the deterministic command router first. The core runtime keeps only the local fake echo module and delegates other deterministic modules to HTTP services configured with `BRAIN_MODULE_SERVICES`.
+
+`BRAIN_MODULE_SERVICES` is a comma-separated list of `name=url` entries:
+
+```text
+BRAIN_MODULE_SERVICES=bilibili=http://module-bilibili:8011,tsperson=http://module-tsperson:8012
+BRAIN_MODULE_TIMEOUT=5
+```
+
+For each configured module, Brain applies the core group allow/block policy before calling `POST /handle` on the remote service with the existing `ChatRequest` JSON shape. Remote service failures, timeouts, non-2xx responses, and invalid JSON are logged and treated as no reply with no retries.
+
+`GET /tools` returns the local fake echo tool plus tools discovered from each remote module service's `GET /tools`. `POST /tools/call` forwards remote tool calls to the owning service by discovered tool name; remote call failures return `ToolResult(ok=false)`.
+
+Command signatures use `BRAIN_COMMAND_PREFIXES`, defaulting to `/` and `.`. When no deterministic module matches, the request falls back to the fake planner path.
 
 The local deterministic echo command can be exercised with:
 
@@ -75,38 +88,20 @@ curl -X POST http://localhost:8000/chat \
   -d '{"text": "/tool-echo runtime"}'
 ```
 
-The deterministic Bilibili module triggers in two ways:
-
-- Auto detect: send a BV ID, `bilibili.com/video/...`, or `b23.tv/...` link.
-- Command: `/bili <BV号或链接>`, `.bili <BV号或链接>`, `/bilibili ...`, or `.bv ...`.
-
-`b23.tv` links are resolved by following redirects and extracting the final BV
-ID. Configure `BILIBILI_SHORT_LINK_TIMEOUT` in `brain-python/.env` if the
-network needs a longer timeout. Runtime proxy environment variables are ignored
-by default; set `BILIBILI_TRUST_ENV_PROXY=true` only if the Brain container has a
-working HTTP/SOCKS proxy setup.
-
-The TeamSpeak module handles `查询人数`, `查询人类`, `ts状态`, `ts人数`, and
-`ts帮助`, plus signed commands such as `/ts`, `.ts`, `/ts 帮助`, and `.ts帮助`.
-TeamSpeak querying is optional and uses these environment variables when enabled:
-
-```text
-TS3_HOST
-TS3_QUERY_PORT
-TS3_QUERY_USER
-TS3_QUERY_PASSWORD
-TS3_VIRTUAL_SERVER_ID
-TS3_TIMEOUT
-```
-
 Plain text that does not match a deterministic module or fake planner command
 is intentionally silent. Brain runtime settings live in `brain-python/.env`.
 Per-module group policies and command prefixes can be configured with environment variables:
 
 ```text
 BRAIN_COMMAND_PREFIXES
+BRAIN_MODULE_SERVICES
+BRAIN_MODULE_TIMEOUT
 BRAIN_GROUP_ALLOWLIST
 BRAIN_GROUP_BLOCKLIST
+BRAIN_MODULE_BILIBILI_GROUP_ALLOWLIST
+BRAIN_MODULE_BILIBILI_GROUP_BLOCKLIST
+BRAIN_MODULE_TSPERSON_GROUP_ALLOWLIST
+BRAIN_MODULE_TSPERSON_GROUP_BLOCKLIST
 BILIBILI_GROUP_ALLOWLIST
 BILIBILI_GROUP_BLOCKLIST
 TSPERSON_GROUP_ALLOWLIST

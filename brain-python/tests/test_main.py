@@ -1,15 +1,35 @@
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
+import httpx
+import pytest
 from fastapi.testclient import TestClient
 
 from main import QuietAccessLogFilter, app
-from modules.bilibili import BilibiliModule
-from modules.tsperson import ChannelInfo, ClientInfo, ServerStatus, TSPersonModule, format_duration
 
 
 client = TestClient(app)
+
+
+@pytest.fixture(autouse=True)
+def clear_module_runtime_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for key in (
+        "BRAIN_MODULE_SERVICES",
+        "BRAIN_MODULE_TIMEOUT",
+        "BRAIN_GROUP_ALLOWLIST",
+        "BRAIN_GROUP_BLOCKLIST",
+        "BRAIN_MODULE_BILIBILI_GROUP_ALLOWLIST",
+        "BRAIN_MODULE_BILIBILI_GROUP_BLOCKLIST",
+        "BILIBILI_GROUP_ALLOWLIST",
+        "BILIBILI_GROUP_BLOCKLIST",
+        "BRAIN_MODULE_TSPERSON_GROUP_ALLOWLIST",
+        "BRAIN_MODULE_TSPERSON_GROUP_BLOCKLIST",
+        "TSPERSON_GROUP_ALLOWLIST",
+        "TSPERSON_GROUP_BLOCKLIST",
+    ):
+        monkeypatch.delenv(key, raising=False)
 
 
 def test_health() -> None:
@@ -27,25 +47,24 @@ def test_access_log_filter_silences_successful_health_and_chat() -> None:
     assert access_filter.filter(_access_record("POST", "/chat", 500)) is True
 
 
-def test_chat_silences_plain_text_without_route() -> None:
-    response = client.post("/chat", json={"text": "hello"})
+def test_no_module_services_plain_text_silent_and_echo_still_works() -> None:
+    plain_response = client.post("/chat", json={"text": "hello"})
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["handled"] is False
-    assert body["should_reply"] is False
-    assert body["metadata"] == {"reason": "no_route"}
-    assert "messages" not in body
+    assert plain_response.status_code == 200
+    plain_body = plain_response.json()
+    assert plain_body["handled"] is False
+    assert plain_body["should_reply"] is False
+    assert plain_body["metadata"] == {"reason": "no_route"}
+    assert "messages" not in plain_body
 
+    echo_response = client.post("/chat", json={"text": "/tool-echo runtime"})
 
-def test_chat_does_not_reply_to_empty_text() -> None:
-    response = client.post("/chat", json={"text": "   "})
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["handled"] is False
-    assert body["should_reply"] is False
-    assert "messages" not in body
+    assert echo_response.status_code == 200
+    echo_body = echo_response.json()
+    assert echo_body["handled"] is True
+    assert echo_body["should_reply"] is True
+    assert echo_body["reply"] == "runtime"
+    assert echo_body["messages"] == [{"type": "text", "text": "runtime"}]
 
 
 def test_chat_accepts_normalized_message_envelope() -> None:
@@ -110,28 +129,6 @@ def test_tool_call_echoes_arguments() -> None:
     }
 
 
-def test_chat_deterministic_command_routes_tool_result_through_presenter() -> None:
-    response = client.post("/chat", json={"text": "/tool-echo runtime"})
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["handled"] is True
-    assert body["should_reply"] is True
-    assert body["reply"] == "runtime"
-    assert body["messages"] == [{"type": "text", "text": "runtime"}]
-    assert "tool_calls" not in body
-    assert "metadata" not in body
-
-
-def test_deterministic_command_accepts_dot_prefix() -> None:
-    response = client.post("/chat", json={"text": ".tool-echo runtime"})
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["handled"] is True
-    assert body["reply"] == "runtime"
-
-
 def test_chat_falls_back_to_fake_planner_when_router_misses() -> None:
     response = client.post("/chat", json={"text": "/echo runtime"})
 
@@ -145,82 +142,30 @@ def test_chat_falls_back_to_fake_planner_when_router_misses() -> None:
     assert body["metadata"] == {"planner": "fake"}
 
 
-def test_fake_planner_accepts_dot_prefix() -> None:
-    response = client.post("/chat", json={"text": ".echo runtime"})
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["handled"] is True
-    assert body["reply"] == "runtime"
-    assert body["tool_calls"] == [{"name": "echo", "arguments": {"text": "runtime"}}]
-
-
-def test_bilibili_link_auto_detects_video() -> None:
-    response = client.post("/chat", json={"text": "看看 https://www.bilibili.com/video/BV1xx411c7mD"})
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["handled"] is True
-    assert "BV1xx411c7mD" in body["reply"]
-    assert "https://www.bilibili.com/video/BV1xx411c7mD" in body["reply"]
-
-
-def test_bilibili_command_accepts_dot_prefix() -> None:
-    response = client.post("/chat", json={"text": ".bili BV1xx411c7mD"})
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["handled"] is True
-    assert "BV1xx411c7mD" in body["reply"]
-
-
-def test_bilibili_command_without_argument_returns_help() -> None:
-    response = client.post("/chat", json={"text": "/bili"})
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["handled"] is True
-    assert ".bili" in body["reply"]
-    assert "b23.tv" in body["reply"]
-
-
-def test_bilibili_short_link_resolves_to_bvid(monkeypatch) -> None:
-    def fake_resolve(cls, url: str) -> tuple[str | None, str | None]:
-        return "BV1xx411c7mD", "https://www.bilibili.com/video/BV1xx411c7mD"
-
-    monkeypatch.setattr(BilibiliModule, "_resolve_short_link", classmethod(fake_resolve))
-
-    response = client.post("/chat", json={"text": "https://b23.tv/abc123"})
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["handled"] is True
-    assert "BV1xx411c7mD" in body["reply"]
-    assert "https://www.bilibili.com/video/BV1xx411c7mD" in body["reply"]
-    assert "Resolved from: https://b23.tv/abc123" in body["reply"]
-
-
-def test_bilibili_short_link_falls_back_when_resolution_fails(monkeypatch) -> None:
-    def fake_resolve(cls, url: str) -> tuple[str | None, str | None]:
-        return None, None
-
-    monkeypatch.setattr(BilibiliModule, "_resolve_short_link", classmethod(fake_resolve))
-
-    response = client.post("/chat", json={"text": "https://b23.tv/abc123"})
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["handled"] is True
-    assert "b23.tv/abc123" in body["reply"]
-    assert "resolution failed" in body["reply"]
-
-
-def test_bilibili_json_miniapp_detects_qqdocurl(monkeypatch) -> None:
-    def fake_resolve(cls, url: str) -> tuple[str | None, str | None]:
-        return "BV1jsonCard1", "https://www.bilibili.com/video/BV1jsonCard1"
-
-    monkeypatch.setattr(BilibiliModule, "_resolve_short_link", classmethod(fake_resolve))
+def test_remote_module_handles_bilibili_json_card_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = []
     payload = _json_example_payload()
+    monkeypatch.setenv("BRAIN_MODULE_SERVICES", "bilibili=http://module-bilibili:8011")
+
+    def fake_post(url: str, json: dict[str, Any], timeout: float) -> FakeResponse:
+        calls.append({"url": url, "json": json, "timeout": timeout})
+        assert url == "http://module-bilibili:8011/handle"
+        assert timeout == 5.0
+        assert json["json_messages"][0]["parsed"] == payload
+        assert "https://b23.tv/q576nmx" in json["text"]
+        return FakeResponse(
+            {
+                "handled": True,
+                "should_reply": True,
+                "reply": "BV1jsonCard1",
+                "messages": [{"type": "text", "text": "BV1jsonCard1"}],
+                "metadata": {"module": "bilibili"},
+            }
+        )
+
+    monkeypatch.setattr("modules.remote.httpx.post", fake_post)
 
     response = client.post(
         "/chat",
@@ -241,214 +186,154 @@ def test_bilibili_json_miniapp_detects_qqdocurl(monkeypatch) -> None:
     body = response.json()
     assert body["handled"] is True
     assert body["should_reply"] is True
-    assert "BV1jsonCard1" in body["reply"]
-    assert "Resolved from: https://b23.tv/q576nmx" in body["reply"]
+    assert body["reply"] == "BV1jsonCard1"
+    assert body["metadata"] == {"module": "bilibili"}
+    assert len(calls) == 1
 
 
-def test_bilibili_json_miniapp_detects_news_jump_url() -> None:
+def test_remote_module_down_silently_no_reply(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BRAIN_MODULE_SERVICES", "bilibili=http://module-bilibili:8011")
+
+    def fake_post(url: str, json: dict[str, Any], timeout: float) -> FakeResponse:
+        raise httpx.ConnectError("down")
+
+    monkeypatch.setattr("modules.remote.httpx.post", fake_post)
+
+    response = client.post("/chat", json={"text": "https://www.bilibili.com/video/BV1xx411c7mD"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is False
+    assert body["should_reply"] is False
+    assert body["metadata"] == {"reason": "no_route"}
+
+
+def test_group_blocklist_prevents_remote_call(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BRAIN_MODULE_SERVICES", "bilibili=http://module-bilibili:8011")
+    monkeypatch.setenv("BRAIN_MODULE_BILIBILI_GROUP_BLOCKLIST", "8")
+
+    def fake_post(url: str, json: dict[str, Any], timeout: float) -> FakeResponse:
+        raise AssertionError("remote module should not be called")
+
+    monkeypatch.setattr("modules.remote.httpx.post", fake_post)
+
     response = client.post(
         "/chat",
         json={
-            "json_messages": [
-                {
-                    "parsed": {
-                        "meta": {
-                            "news": {
-                                "jumpUrl": "https://www.bilibili.com/video/BV1xx411c7mD"
-                            }
-                        }
-                    }
-                }
-            ],
+            "text": "https://www.bilibili.com/video/BV1xx411c7mD",
+            "group_id": "8",
+            "message_type": "group",
         },
     )
 
     assert response.status_code == 200
     body = response.json()
     assert body["handled"] is True
-    assert "BV1xx411c7mD" in body["reply"]
+    assert body["should_reply"] is False
+    assert body["metadata"] == {
+        "module": "bilibili",
+        "group_policy": "blocked",
+        "group_id": "8",
+    }
 
 
-class FakeTSProvider:
-    def get_status(self) -> ServerStatus:
-        return ServerStatus(
-            name="Test TS",
-            platform="Linux",
-            version="3.13",
-            clients_online=2,
-            max_clients=32,
-            channels_online=3,
-            uptime=93780,
-            clients=[
-                ClientInfo(nickname="Alice", channel_id=1),
-                ClientInfo(nickname="Bob", channel_id=2),
-            ],
-            channels=[ChannelInfo(channel_id=1, name="Lobby", total_clients=2)],
+def test_tools_aggregates_remote_tools(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BRAIN_MODULE_SERVICES", "tsperson=http://module-tsperson:8012")
+
+    def fake_get(url: str, timeout: float) -> FakeResponse:
+        assert url == "http://module-tsperson:8012/tools"
+        assert timeout == 5.0
+        return FakeResponse(
+            [
+                {
+                    "name": "tsperson.get_status",
+                    "description": "Get TeamSpeak status.",
+                    "input_schema": {"type": "object", "properties": {}},
+                }
+            ]
         )
 
+    monkeypatch.setattr("modules.remote.httpx.get", fake_get)
 
-def test_tsperson_module_presents_status_from_provider() -> None:
-    module = TSPersonModule(provider=FakeTSProvider())
+    response = client.get("/tools")
 
-    response = module.present(module.call(module.parse("ts状态")))
+    assert response.status_code == 200
+    assert [tool["name"] for tool in response.json()] == ["echo", "tsperson.get_status"]
 
-    assert response.handled is True
-    assert response.should_reply is True
-    assert "TS 服务器：Test TS" in response.reply
-    assert "在线人数：2/32" in response.reply
-    assert "在线用户：Alice、Bob" in response.reply
-    assert response.metadata == {
-        "module": "tsperson",
+
+def test_tools_call_forwards_to_remote_tool(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BRAIN_MODULE_SERVICES", "tsperson=http://module-tsperson:8012")
+    calls = []
+
+    def fake_get(url: str, timeout: float) -> FakeResponse:
+        return FakeResponse(
+            [
+                {
+                    "name": "tsperson.get_status",
+                    "description": "Get TeamSpeak status.",
+                    "input_schema": {"type": "object", "properties": {}},
+                }
+            ]
+        )
+
+    def fake_post(url: str, json: dict[str, Any], timeout: float) -> FakeResponse:
+        calls.append({"url": url, "json": json, "timeout": timeout})
+        return FakeResponse(
+            {
+                "tool_name": "tsperson.get_status",
+                "ok": True,
+                "data": {"text": "2 users online"},
+            }
+        )
+
+    monkeypatch.setattr("modules.remote.httpx.get", fake_get)
+    monkeypatch.setattr("modules.remote.httpx.post", fake_post)
+
+    response = client.post("/tools/call", json={"name": "tsperson.get_status", "arguments": {}})
+
+    assert response.status_code == 200
+    assert response.json() == {
         "tool_name": "tsperson.get_status",
         "ok": True,
+        "data": {"text": "2 users online"},
     }
+    assert calls == [
+        {
+            "url": "http://module-tsperson:8012/tools/call",
+            "json": {"name": "tsperson.get_status", "arguments": {}},
+            "timeout": 5.0,
+        }
+    ]
 
 
-def test_tsperson_command_routes_without_fake_planner_when_unconfigured(monkeypatch) -> None:
-    for key in (
-        "TS3_HOST",
-        "TSPERSON_HOST",
-        "TS3_QUERY_USER",
-        "TSPERSON_QUERY_USER",
-        "TS3_QUERY_PASSWORD",
-        "TSPERSON_QUERY_PASSWORD",
-    ):
-        monkeypatch.delenv(key, raising=False)
+def test_remote_tool_failure_returns_tool_result(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BRAIN_MODULE_SERVICES", "tsperson=http://module-tsperson:8012")
 
-    response = client.post("/chat", json={"text": "查询人数"})
+    def fake_get(url: str, timeout: float) -> FakeResponse:
+        return FakeResponse(
+            [
+                {
+                    "name": "tsperson.get_status",
+                    "description": "Get TeamSpeak status.",
+                    "input_schema": {"type": "object", "properties": {}},
+                }
+            ]
+        )
 
-    assert response.status_code == 200
-    body = response.json()
-    assert body["handled"] is True
-    assert body["should_reply"] is True
-    assert body["metadata"]["module"] == "tsperson"
-    assert body["metadata"]["error"] == "missing_config"
-    assert "TS ServerQuery 配置不完整" in body["reply"]
-    assert "tool_calls" not in body
+    def fake_post(url: str, json: dict[str, Any], timeout: float) -> FakeResponse:
+        raise httpx.TimeoutException("timeout")
 
+    monkeypatch.setattr("modules.remote.httpx.get", fake_get)
+    monkeypatch.setattr("modules.remote.httpx.post", fake_post)
 
-def test_tsperson_help_command() -> None:
-    response = client.post("/chat", json={"text": "ts帮助"})
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["handled"] is True
-    assert "查询人数" in body["reply"]
-
-
-def test_tsperson_help_command_accepts_dot_prefix() -> None:
-    response = client.post("/chat", json={"text": ".ts帮助"})
+    response = client.post("/tools/call", json={"name": "tsperson.get_status", "arguments": {}})
 
     assert response.status_code == 200
-    body = response.json()
-    assert body["handled"] is True
-    assert "查询人数" in body["reply"]
-
-
-def test_module_group_blocklist_silences_matching_module(monkeypatch) -> None:
-    monkeypatch.setenv("TSPERSON_GROUP_BLOCKLIST", "8")
-
-    response = client.post("/chat", json={"text": "查询人数", "group_id": "8", "message_type": "group"})
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["handled"] is True
-    assert body["should_reply"] is False
-    assert body["metadata"] == {
-        "module": "tsperson",
-        "group_policy": "blocked",
-        "group_id": "8",
+    assert response.json() == {
+        "tool_name": "tsperson.get_status",
+        "ok": False,
+        "error": "module_unavailable",
     }
-
-
-def test_module_group_allowlist_silences_groups_not_in_list(monkeypatch) -> None:
-    monkeypatch.setenv("TSPERSON_GROUP_ALLOWLIST", "9")
-
-    response = client.post("/chat", json={"text": "查询人数", "group_id": "8", "message_type": "group"})
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["handled"] is True
-    assert body["should_reply"] is False
-    assert body["metadata"]["group_policy"] == "blocked"
-
-
-def test_module_group_allowlist_does_not_block_private_messages(monkeypatch) -> None:
-    monkeypatch.setenv("TSPERSON_GROUP_ALLOWLIST", "9")
-    for key in (
-        "TS3_HOST",
-        "TSPERSON_HOST",
-        "TS3_QUERY_USER",
-        "TSPERSON_QUERY_USER",
-        "TS3_QUERY_PASSWORD",
-        "TSPERSON_QUERY_PASSWORD",
-    ):
-        monkeypatch.delenv(key, raising=False)
-
-    response = client.post("/chat", json={"text": "查询人数", "message_type": "private"})
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["handled"] is True
-    assert body["should_reply"] is True
-    assert body["metadata"]["module"] == "tsperson"
-    assert body["metadata"]["error"] == "missing_config"
-
-
-def test_module_policy_uses_context_from_selected_message(monkeypatch) -> None:
-    monkeypatch.setenv("TSPERSON_GROUP_ALLOWLIST", "9")
-
-    response = client.post(
-        "/chat",
-        json={
-            "group_id": "9",
-            "message_type": "group",
-            "messages": [
-                {"text": "older", "group_id": "9", "message_type": "group"},
-                {"text": "ts帮助", "group_id": "8", "message_type": "group"},
-            ],
-        },
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["handled"] is True
-    assert body["should_reply"] is False
-    assert body["metadata"] == {
-        "module": "tsperson",
-        "group_policy": "blocked",
-        "group_id": "8",
-    }
-
-
-def test_tsperson_tool_is_listed_and_callable_when_unconfigured(monkeypatch) -> None:
-    for key in (
-        "TS3_HOST",
-        "TSPERSON_HOST",
-        "TS3_QUERY_USER",
-        "TSPERSON_QUERY_USER",
-        "TS3_QUERY_PASSWORD",
-        "TSPERSON_QUERY_PASSWORD",
-    ):
-        monkeypatch.delenv(key, raising=False)
-
-    tools_response = client.get("/tools")
-    tool_names = [tool["name"] for tool in tools_response.json()]
-    assert "tsperson.get_status" in tool_names
-
-    call_response = client.post("/tools/call", json={"name": "tsperson.get_status", "arguments": {}})
-
-    assert call_response.status_code == 200
-    body = call_response.json()
-    assert body["tool_name"] == "tsperson.get_status"
-    assert body["ok"] is False
-    assert body["error"] == "missing_config"
-
-
-def test_tsperson_format_duration() -> None:
-    assert format_duration(59) == "59秒"
-    assert format_duration(3600) == "1小时"
-    assert format_duration(90000) == "1天1小时"
 
 
 def _access_record(method: str, path: str, status: int) -> logging.LogRecord:
@@ -463,7 +348,16 @@ def _access_record(method: str, path: str, status: int) -> logging.LogRecord:
     )
 
 
-def _json_example_payload() -> dict:
+def _json_example_payload() -> dict[str, Any]:
     example_path = Path(__file__).resolve().parents[2] / "json_example" / "group" / "json_example.json"
     event = json.loads(example_path.read_text(encoding="utf-8"))
     return json.loads(event["message"][0]["data"]["data"])
+
+
+class FakeResponse:
+    def __init__(self, payload: Any, status_code: int = 200) -> None:
+        self._payload = payload
+        self.status_code = status_code
+
+    def json(self) -> Any:
+        return self._payload

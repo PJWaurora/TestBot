@@ -14,7 +14,7 @@ def build_chat_response(request: ChatRequest) -> BrainResponse:
         return BrainResponse(handled=False, should_reply=False)
 
     for module_text in module_texts:
-        module_response = default_registry.handle(module_text, context)
+        module_response = default_registry.handle(module_text, context, request)
         if module_response is not None:
             return module_response
 
