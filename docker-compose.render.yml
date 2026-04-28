@@ -1,10 +1,15 @@
 services:
-  brain-python:
+  module-bilibili:
     environment:
       RENDERER_ENABLED: ${RENDERER_ENABLED:-false}
       RENDERER_INTERNAL_BASE_URL: ${RENDERER_INTERNAL_BASE_URL:-http://renderer-rust:8020}
-      RENDERER_PUBLIC_BASE_URL: ${RENDERER_PUBLIC_BASE_URL:-http://renderer-rust:8020}
-      RENDERER_TIMEOUT: ${RENDERER_TIMEOUT:-10}
+      RENDERER_TIMEOUT: ${RENDERER_TIMEOUT:-3}
+
+  module-tsperson:
+    environment:
+      RENDERER_ENABLED: ${RENDERER_ENABLED:-false}
+      RENDERER_INTERNAL_BASE_URL: ${RENDERER_INTERNAL_BASE_URL:-http://renderer-rust:8020}
+      RENDERER_TIMEOUT: ${RENDERER_TIMEOUT:-3}
 
   renderer-rust:
     build:
