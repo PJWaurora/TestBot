@@ -5,6 +5,7 @@ golang-migrate naming convention:
 
 1. `000001_enable_pgvector.up.sql`
 2. `000002_core_chat_tables.up.sql`
+3. `000003_message_outbox.up.sql`
 
 Run migrations in numeric order. Rollbacks should use the matching `.down.sql`
 files in reverse numeric order.
@@ -16,11 +17,13 @@ For a fresh local database, run:
 ```sh
 psql "$DATABASE_URL" -f database/migrations/000001_enable_pgvector.up.sql
 psql "$DATABASE_URL" -f database/migrations/000002_core_chat_tables.up.sql
+psql "$DATABASE_URL" -f database/migrations/000003_message_outbox.up.sql
 ```
 
 To roll back the initial schema:
 
 ```sh
+psql "$DATABASE_URL" -f database/migrations/000003_message_outbox.down.sql
 psql "$DATABASE_URL" -f database/migrations/000002_core_chat_tables.down.sql
 psql "$DATABASE_URL" -f database/migrations/000001_enable_pgvector.down.sql
 ```

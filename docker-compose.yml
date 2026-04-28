@@ -1,19 +1,21 @@
 x-build-proxy-args: &build-proxy-args
   HTTP_PROXY: ${DOCKER_BUILD_HTTP_PROXY:-}
   HTTPS_PROXY: ${DOCKER_BUILD_HTTPS_PROXY:-}
-  NO_PROXY: ${DOCKER_BUILD_NO_PROXY:-localhost,127.0.0.1,::1,postgres,brain-python,gateway-go}
+  NO_PROXY: ${DOCKER_BUILD_NO_PROXY:-localhost,127.0.0.1,::1,postgres,brain-python,gateway-go,testbot-media}
   http_proxy: ${DOCKER_BUILD_HTTP_PROXY:-}
   https_proxy: ${DOCKER_BUILD_HTTPS_PROXY:-}
-  no_proxy: ${DOCKER_BUILD_NO_PROXY:-localhost,127.0.0.1,::1,postgres,brain-python,gateway-go}
+  no_proxy: ${DOCKER_BUILD_NO_PROXY:-localhost,127.0.0.1,::1,postgres,brain-python,gateway-go,testbot-media}
 
 x-brain-env: &brain-env
   APP_ENV: ${APP_ENV:-local}
   DATABASE_URL: ${DATABASE_URL:-postgres://testbot:change-me-local-only@postgres:5432/testbot?sslmode=disable}
+  OUTBOX_TOKEN: ${OUTBOX_TOKEN:?set OUTBOX_TOKEN in .env}
 
 x-gateway-env: &gateway-env
   APP_ENV: ${APP_ENV:-local}
   BRAIN_BASE_URL: ${BRAIN_BASE_URL:-http://brain-python:8000}
   PYTHON_BRAIN_URL: ${PYTHON_BRAIN_URL:-http://brain-python:8000}
+  OUTBOX_TOKEN: ${OUTBOX_TOKEN:?set OUTBOX_TOKEN in .env}
   GATEWAY_LISTEN_ADDR: ${GATEWAY_LISTEN_ADDR:-:808}
   GATEWAY_WS_PATH: ${GATEWAY_WS_PATH:-/ws}
 
@@ -55,6 +57,7 @@ services:
       - |
         psql -h postgres -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -v ON_ERROR_STOP=1 -f /migrations/000001_enable_pgvector.up.sql
         psql -h postgres -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -v ON_ERROR_STOP=1 -f /migrations/000002_core_chat_tables.up.sql
+        psql -h postgres -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -v ON_ERROR_STOP=1 -f /migrations/000003_message_outbox.up.sql
 
   brain-python:
     image: ${BRAIN_IMAGE:-testbot-brain-python:latest}

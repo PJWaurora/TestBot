@@ -1,0 +1,32 @@
+services:
+  testbot-media:
+    image: ${MEDIA_SERVICE_IMAGE:-testbot-media-service:latest}
+    build:
+      context: ${MEDIA_SERVICE_CONTEXT:-../testbot-media-service}
+      network: ${DOCKER_BUILD_NETWORK:-default}
+      args:
+        HTTP_PROXY: ${DOCKER_BUILD_HTTP_PROXY:-}
+        HTTPS_PROXY: ${DOCKER_BUILD_HTTPS_PROXY:-}
+        NO_PROXY: ${DOCKER_BUILD_NO_PROXY:-localhost,127.0.0.1,::1,postgres,brain-python,gateway-go,testbot-media}
+        http_proxy: ${DOCKER_BUILD_HTTP_PROXY:-}
+        https_proxy: ${DOCKER_BUILD_HTTPS_PROXY:-}
+        no_proxy: ${DOCKER_BUILD_NO_PROXY:-localhost,127.0.0.1,::1,postgres,brain-python,gateway-go,testbot-media}
+    env_file:
+      - path: ./config/modules/bilibili.env
+        required: false
+    environment:
+      APP_ENV: ${APP_ENV:-local}
+      BRAIN_BASE_URL: ${BRAIN_BASE_URL:-http://brain-python:8000}
+      PYTHON_BRAIN_URL: ${PYTHON_BRAIN_URL:-http://brain-python:8000}
+      OUTBOX_TOKEN: ${OUTBOX_TOKEN:?set OUTBOX_TOKEN in .env}
+      MEDIA_PUBLIC_BASE_URL: ${MEDIA_PUBLIC_BASE_URL:-http://testbot-media:8030}
+    ports:
+      - "${MEDIA_SERVICE_PORT:-8030}:8030"
+    volumes:
+      - media-data:/data
+    depends_on:
+      brain-python:
+        condition: service_healthy
+
+volumes:
+  media-data:

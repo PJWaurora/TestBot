@@ -162,6 +162,102 @@ func TestPostEnvelopeReturnsNilResponseForTimeout(t *testing.T) {
 	}
 }
 
+func TestPullOutboxSendsBearerTokenAndDecodesItems(t *testing.T) {
+	var captured map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/outbox/pull" {
+			t.Fatalf("path = %s, want /api/outbox/pull", r.URL.Path)
+		}
+		if got := r.Header.Get("Authorization"); got != "Bearer secret" {
+			t.Fatalf("authorization = %q, want bearer token", got)
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&captured); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"items": [{
+				"id": 7,
+				"message_type": "group",
+				"group_id": "8",
+				"messages": [{"type": "image", "url": "https://example.test/a.png"}],
+				"status": "processing",
+				"attempts": 1,
+				"max_attempts": 5
+			}]
+		}`))
+	}))
+	defer server.Close()
+
+	client, err := brain.NewClient(server.URL+"/api", brain.WithOutboxToken("secret"))
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	items, err := client.PullOutbox(context.Background(), 3, 9)
+	if err != nil {
+		t.Fatalf("pull outbox: %v", err)
+	}
+	if captured["limit"].(float64) != 3 || captured["lease_seconds"].(float64) != 9 {
+		t.Fatalf("captured request = %#v, want limit and lease", captured)
+	}
+	if len(items) != 1 || items[0].ID != 7 || items[0].Messages[0].URL != "https://example.test/a.png" {
+		t.Fatalf("items = %+v", items)
+	}
+}
+
+func TestAckAndFailOutboxUseItemEndpoints(t *testing.T) {
+	var paths []string
+	var failBody map[string]interface{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		paths = append(paths, r.URL.Path)
+		if got := r.Header.Get("Authorization"); got != "Bearer secret" {
+			t.Fatalf("authorization = %q, want bearer token", got)
+		}
+		if r.URL.Path == "/outbox/7/fail" {
+			if err := json.NewDecoder(r.Body).Decode(&failBody); err != nil {
+				t.Fatalf("decode fail request: %v", err)
+			}
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":7,"message_type":"group","group_id":"8","status":"sent","attempts":0,"max_attempts":5}`))
+	}))
+	defer server.Close()
+
+	client, err := brain.NewClient(server.URL, brain.WithOutboxToken("secret"))
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	if err := client.AckOutbox(context.Background(), 7); err != nil {
+		t.Fatalf("ack outbox: %v", err)
+	}
+	if err := client.FailOutbox(context.Background(), 7, "send failed"); err != nil {
+		t.Fatalf("fail outbox: %v", err)
+	}
+
+	if strings.Join(paths, ",") != "/outbox/7/ack,/outbox/7/fail" {
+		t.Fatalf("paths = %v, want ack then fail", paths)
+	}
+	if failBody["error"] != "send failed" {
+		t.Fatalf("fail body = %#v, want error", failBody)
+	}
+}
+
+func TestPullOutboxRequiresToken(t *testing.T) {
+	client, err := brain.NewClient("http://localhost:8000")
+	if err != nil {
+		t.Fatalf("new client: %v", err)
+	}
+
+	if _, err := client.PullOutbox(context.Background(), 1, 1); err == nil {
+		t.Fatal("error is nil, want missing token error")
+	}
+}
+
 func TestNewClientValidatesBaseURLAndTimeout(t *testing.T) {
 	if _, err := brain.NewClient("localhost:8000"); err == nil {
 		t.Fatal("error is nil, want invalid base URL error")

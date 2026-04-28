@@ -1,6 +1,7 @@
 import json
 import logging
 from pathlib import Path
+from datetime import datetime, timezone
 from typing import Any
 
 import httpx
@@ -8,6 +9,8 @@ import pytest
 from fastapi.testclient import TestClient
 
 from main import QuietAccessLogFilter, app
+from schemas import BrainMessage, OutboxEnqueueRequest, OutboxItem
+from services.outbox import _validate_messages
 
 
 client = TestClient(app)
@@ -28,6 +31,7 @@ def clear_module_runtime_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "BRAIN_MODULE_TSPERSON_GROUP_BLOCKLIST",
         "TSPERSON_GROUP_ALLOWLIST",
         "TSPERSON_GROUP_BLOCKLIST",
+        "OUTBOX_TOKEN",
     ):
         monkeypatch.delenv(key, raising=False)
 
@@ -145,6 +149,76 @@ def test_tool_call_echoes_arguments() -> None:
         "ok": True,
         "data": {"text": "runtime"},
     }
+
+
+def test_outbox_requires_configured_token() -> None:
+    response = client.post("/outbox/pull", json={})
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "OUTBOX_TOKEN is not configured"
+
+
+def test_outbox_rejects_invalid_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("OUTBOX_TOKEN", "secret")
+
+    response = client.post("/outbox/pull", headers={"Authorization": "Bearer wrong"}, json={})
+
+    assert response.status_code == 401
+    assert response.json()["detail"] == "invalid outbox token"
+
+
+def test_outbox_endpoints_use_store_with_token(monkeypatch: pytest.MonkeyPatch) -> None:
+    store = FakeOutboxStore()
+    monkeypatch.setenv("OUTBOX_TOKEN", "secret")
+    monkeypatch.setattr("main.outbox_store", store)
+
+    enqueue_response = client.post(
+        "/outbox/enqueue",
+        headers={"Authorization": "Bearer secret"},
+        json={
+            "message_type": "group",
+            "group_id": "8",
+            "messages": [{"type": "text", "text": "queued"}],
+            "metadata": {"source": "test"},
+        },
+    )
+    assert enqueue_response.status_code == 200
+    enqueue_body = enqueue_response.json()
+    assert enqueue_body["messages"][0]["type"] == "text"
+    assert enqueue_body["messages"][0]["text"] == "queued"
+    assert store.enqueued is not None
+    assert store.enqueued.group_id == "8"
+
+    pull_response = client.post(
+        "/outbox/pull",
+        headers={"Authorization": "Bearer secret"},
+        json={"limit": 3, "lease_seconds": 9},
+    )
+    assert pull_response.status_code == 200
+    assert pull_response.json()["items"][0]["id"] == 42
+    assert store.pull_args == (3, 9)
+
+    ack_response = client.post("/outbox/42/ack", headers={"X-Outbox-Token": "secret"})
+    assert ack_response.status_code == 200
+    assert store.acked == 42
+
+    fail_response = client.post(
+        "/outbox/42/fail",
+        headers={"Authorization": "Bearer secret"},
+        json={"error": "send failed"},
+    )
+    assert fail_response.status_code == 200
+    assert store.failed == (42, "send failed")
+
+
+def test_outbox_messages_accept_existing_data_shape() -> None:
+    _validate_messages(
+        [
+            BrainMessage(type="text", data={"text": "queued"}),
+            BrainMessage(type="image", data={"url": "https://example.test/card.png"}),
+            BrainMessage(type="video", data={"file": "http://media.local/video.mp4"}),
+        ]
+    )
 
 
 def test_chat_falls_back_to_fake_planner_when_router_misses() -> None:
@@ -457,3 +531,51 @@ class FakeResponse:
 
     def json(self) -> Any:
         return self._payload
+
+
+class FakeOutboxStore:
+    def __init__(self) -> None:
+        self.enqueued: OutboxEnqueueRequest | None = None
+        self.pull_args: tuple[int, int] | None = None
+        self.acked: int | None = None
+        self.failed: tuple[int, str] | None = None
+
+    def enqueue(self, request: OutboxEnqueueRequest) -> OutboxItem:
+        self.enqueued = request
+        return _outbox_item(status="pending", messages=request.messages, metadata=request.metadata)
+
+    def pull(self, limit: int, lease_seconds: int) -> list[OutboxItem]:
+        self.pull_args = (limit, lease_seconds)
+        return [_outbox_item(status="processing")]
+
+    def ack(self, item_id: int) -> OutboxItem:
+        self.acked = item_id
+        return _outbox_item(status="sent")
+
+    def fail(self, item_id: int, error: str) -> OutboxItem:
+        self.failed = (item_id, error)
+        return _outbox_item(status="pending", attempts=1, last_error=error)
+
+
+def _outbox_item(
+    *,
+    status: str,
+    messages: list[Any] | None = None,
+    metadata: dict[str, Any] | None = None,
+    attempts: int = 0,
+    last_error: str | None = None,
+) -> OutboxItem:
+    now = datetime.now(timezone.utc)
+    return OutboxItem(
+        id=42,
+        message_type="group",
+        group_id="8",
+        messages=messages or [{"type": "text", "text": "queued"}],
+        metadata=metadata or {},
+        status=status,
+        attempts=attempts,
+        max_attempts=5,
+        last_error=last_error,
+        created_at=now,
+        updated_at=now,
+    )
