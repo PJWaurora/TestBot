@@ -1,19 +1,18 @@
 from schemas import BrainMessage, BrainResponse
 
-from modules.base import ModuleArguments, ModuleResult
+from modules.base import ModuleArguments, ModuleResult, parse_command_invocation
 
 
 class ToolEchoModule:
     name = "tool_echo"
-    command = "/tool-echo"
+    command_aliases = ("tool-echo",)
 
     def detect(self, text: str) -> bool:
-        command, _, _ = text.partition(" ")
-        return command.lower() == self.command
+        return parse_command_invocation(text, self.command_aliases) is not None
 
     def parse(self, text: str) -> ModuleArguments:
-        _, _, argument = text.partition(" ")
-        return {"text": argument.strip()}
+        invocation = parse_command_invocation(text, self.command_aliases)
+        return {"text": invocation.argument if invocation is not None else ""}
 
     def call(self, arguments: ModuleArguments) -> ModuleResult:
         return {"text": str(arguments.get("text", ""))}

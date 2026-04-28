@@ -24,6 +24,11 @@ class BrainMessage(BaseModel):
     metadata: dict[str, Any] = Field(default_factory=dict)
 
 
+class BrainJSONMessage(BaseModel):
+    raw: str = ""
+    parsed: dict[str, Any] = Field(default_factory=dict)
+
+
 class ToolDefinition(BaseModel):
     name: str
     description: str
@@ -54,10 +59,15 @@ class BrainResponse(BaseModel):
 
 
 class ChatRequest(BaseModel):
+    self_id: str | int | None = None
+    post_type: str | None = None
+    primary_type: str | None = None
     text: str = ""
     content: str = ""
     message: BrainMessage | None = None
     messages: list[BrainMessage] = Field(default_factory=list)
+    text_segments: list[str] = Field(default_factory=list)
+    json_messages: list[BrainJSONMessage] = Field(default_factory=list)
     user_id: str | int | None = None
     group_id: str | int | None = None
     conversation_id: str | None = None

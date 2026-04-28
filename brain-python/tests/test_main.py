@@ -1,6 +1,11 @@
+import json
+import logging
+from pathlib import Path
+
 from fastapi.testclient import TestClient
 
-from main import app
+from main import QuietAccessLogFilter, app
+from modules.bilibili import BilibiliModule
 from modules.tsperson import ChannelInfo, ClientInfo, ServerStatus, TSPersonModule, format_duration
 
 
@@ -14,15 +19,23 @@ def test_health() -> None:
     assert response.json() == {"status": "ok"}
 
 
-def test_chat_replies_to_text() -> None:
+def test_access_log_filter_silences_successful_health_and_chat() -> None:
+    access_filter = QuietAccessLogFilter()
+
+    assert access_filter.filter(_access_record("GET", "/health", 200)) is False
+    assert access_filter.filter(_access_record("POST", "/chat", 200)) is False
+    assert access_filter.filter(_access_record("POST", "/chat", 500)) is True
+
+
+def test_chat_silences_plain_text_without_route() -> None:
     response = client.post("/chat", json={"text": "hello"})
 
     assert response.status_code == 200
     body = response.json()
-    assert body["handled"] is True
-    assert body["should_reply"] is True
-    assert body["reply"] == "收到：hello"
-    assert body["messages"] == [{"type": "text", "text": "收到：hello"}]
+    assert body["handled"] is False
+    assert body["should_reply"] is False
+    assert body["metadata"] == {"reason": "no_route"}
+    assert "messages" not in body
 
 
 def test_chat_does_not_reply_to_empty_text() -> None:
@@ -51,9 +64,9 @@ def test_chat_accepts_normalized_message_envelope() -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["handled"] is True
-    assert body["reply"] == "收到：hello from envelope"
-    assert body["messages"][0]["text"] == "收到：hello from envelope"
+    assert body["handled"] is False
+    assert body["should_reply"] is False
+    assert body["metadata"] == {"reason": "no_route"}
 
 
 def test_chat_uses_latest_normalized_message() -> None:
@@ -69,8 +82,9 @@ def test_chat_uses_latest_normalized_message() -> None:
 
     assert response.status_code == 200
     body = response.json()
-    assert body["reply"] == "收到：latest"
-    assert body["messages"][0]["text"] == "收到：latest"
+    assert body["handled"] is False
+    assert body["should_reply"] is False
+    assert body["metadata"] == {"reason": "no_route"}
 
 
 def test_tools_are_listed() -> None:
@@ -109,6 +123,15 @@ def test_chat_deterministic_command_routes_tool_result_through_presenter() -> No
     assert "metadata" not in body
 
 
+def test_deterministic_command_accepts_dot_prefix() -> None:
+    response = client.post("/chat", json={"text": ".tool-echo runtime"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert body["reply"] == "runtime"
+
+
 def test_chat_falls_back_to_fake_planner_when_router_misses() -> None:
     response = client.post("/chat", json={"text": "/echo runtime"})
 
@@ -122,6 +145,16 @@ def test_chat_falls_back_to_fake_planner_when_router_misses() -> None:
     assert body["metadata"] == {"planner": "fake"}
 
 
+def test_fake_planner_accepts_dot_prefix() -> None:
+    response = client.post("/chat", json={"text": ".echo runtime"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert body["reply"] == "runtime"
+    assert body["tool_calls"] == [{"name": "echo", "arguments": {"text": "runtime"}}]
+
+
 def test_bilibili_link_auto_detects_video() -> None:
     response = client.post("/chat", json={"text": "看看 https://www.bilibili.com/video/BV1xx411c7mD"})
 
@@ -132,14 +165,108 @@ def test_bilibili_link_auto_detects_video() -> None:
     assert "https://www.bilibili.com/video/BV1xx411c7mD" in body["reply"]
 
 
-def test_bilibili_short_link_is_detected_without_network_resolution() -> None:
+def test_bilibili_command_accepts_dot_prefix() -> None:
+    response = client.post("/chat", json={"text": ".bili BV1xx411c7mD"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert "BV1xx411c7mD" in body["reply"]
+
+
+def test_bilibili_command_without_argument_returns_help() -> None:
+    response = client.post("/chat", json={"text": "/bili"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert ".bili" in body["reply"]
+    assert "b23.tv" in body["reply"]
+
+
+def test_bilibili_short_link_resolves_to_bvid(monkeypatch) -> None:
+    def fake_resolve(cls, url: str) -> tuple[str | None, str | None]:
+        return "BV1xx411c7mD", "https://www.bilibili.com/video/BV1xx411c7mD"
+
+    monkeypatch.setattr(BilibiliModule, "_resolve_short_link", classmethod(fake_resolve))
+
+    response = client.post("/chat", json={"text": "https://b23.tv/abc123"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert "BV1xx411c7mD" in body["reply"]
+    assert "https://www.bilibili.com/video/BV1xx411c7mD" in body["reply"]
+    assert "Resolved from: https://b23.tv/abc123" in body["reply"]
+
+
+def test_bilibili_short_link_falls_back_when_resolution_fails(monkeypatch) -> None:
+    def fake_resolve(cls, url: str) -> tuple[str | None, str | None]:
+        return None, None
+
+    monkeypatch.setattr(BilibiliModule, "_resolve_short_link", classmethod(fake_resolve))
+
     response = client.post("/chat", json={"text": "https://b23.tv/abc123"})
 
     assert response.status_code == 200
     body = response.json()
     assert body["handled"] is True
     assert "b23.tv/abc123" in body["reply"]
-    assert "resolution disabled" in body["reply"]
+    assert "resolution failed" in body["reply"]
+
+
+def test_bilibili_json_miniapp_detects_qqdocurl(monkeypatch) -> None:
+    def fake_resolve(cls, url: str) -> tuple[str | None, str | None]:
+        return "BV1jsonCard1", "https://www.bilibili.com/video/BV1jsonCard1"
+
+    monkeypatch.setattr(BilibiliModule, "_resolve_short_link", classmethod(fake_resolve))
+    payload = _json_example_payload()
+
+    response = client.post(
+        "/chat",
+        json={
+            "primary_type": "json",
+            "message_type": "group",
+            "group_id": "1",
+            "json_messages": [
+                {
+                    "raw": json.dumps(payload, ensure_ascii=False),
+                    "parsed": payload,
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert body["should_reply"] is True
+    assert "BV1jsonCard1" in body["reply"]
+    assert "Resolved from: https://b23.tv/q576nmx" in body["reply"]
+
+
+def test_bilibili_json_miniapp_detects_news_jump_url() -> None:
+    response = client.post(
+        "/chat",
+        json={
+            "json_messages": [
+                {
+                    "parsed": {
+                        "meta": {
+                            "news": {
+                                "jumpUrl": "https://www.bilibili.com/video/BV1xx411c7mD"
+                            }
+                        }
+                    }
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert "BV1xx411c7mD" in body["reply"]
 
 
 class FakeTSProvider:
@@ -209,6 +336,91 @@ def test_tsperson_help_command() -> None:
     assert "查询人数" in body["reply"]
 
 
+def test_tsperson_help_command_accepts_dot_prefix() -> None:
+    response = client.post("/chat", json={"text": ".ts帮助"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert "查询人数" in body["reply"]
+
+
+def test_module_group_blocklist_silences_matching_module(monkeypatch) -> None:
+    monkeypatch.setenv("TSPERSON_GROUP_BLOCKLIST", "8")
+
+    response = client.post("/chat", json={"text": "查询人数", "group_id": "8", "message_type": "group"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert body["should_reply"] is False
+    assert body["metadata"] == {
+        "module": "tsperson",
+        "group_policy": "blocked",
+        "group_id": "8",
+    }
+
+
+def test_module_group_allowlist_silences_groups_not_in_list(monkeypatch) -> None:
+    monkeypatch.setenv("TSPERSON_GROUP_ALLOWLIST", "9")
+
+    response = client.post("/chat", json={"text": "查询人数", "group_id": "8", "message_type": "group"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert body["should_reply"] is False
+    assert body["metadata"]["group_policy"] == "blocked"
+
+
+def test_module_group_allowlist_does_not_block_private_messages(monkeypatch) -> None:
+    monkeypatch.setenv("TSPERSON_GROUP_ALLOWLIST", "9")
+    for key in (
+        "TS3_HOST",
+        "TSPERSON_HOST",
+        "TS3_QUERY_USER",
+        "TSPERSON_QUERY_USER",
+        "TS3_QUERY_PASSWORD",
+        "TSPERSON_QUERY_PASSWORD",
+    ):
+        monkeypatch.delenv(key, raising=False)
+
+    response = client.post("/chat", json={"text": "查询人数", "message_type": "private"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert body["should_reply"] is True
+    assert body["metadata"]["module"] == "tsperson"
+    assert body["metadata"]["error"] == "missing_config"
+
+
+def test_module_policy_uses_context_from_selected_message(monkeypatch) -> None:
+    monkeypatch.setenv("TSPERSON_GROUP_ALLOWLIST", "9")
+
+    response = client.post(
+        "/chat",
+        json={
+            "group_id": "9",
+            "message_type": "group",
+            "messages": [
+                {"text": "older", "group_id": "9", "message_type": "group"},
+                {"text": "ts帮助", "group_id": "8", "message_type": "group"},
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert body["should_reply"] is False
+    assert body["metadata"] == {
+        "module": "tsperson",
+        "group_policy": "blocked",
+        "group_id": "8",
+    }
+
+
 def test_tsperson_tool_is_listed_and_callable_when_unconfigured(monkeypatch) -> None:
     for key in (
         "TS3_HOST",
@@ -237,3 +449,21 @@ def test_tsperson_format_duration() -> None:
     assert format_duration(59) == "59秒"
     assert format_duration(3600) == "1小时"
     assert format_duration(90000) == "1天1小时"
+
+
+def _access_record(method: str, path: str, status: int) -> logging.LogRecord:
+    return logging.LogRecord(
+        name="uvicorn.access",
+        level=logging.INFO,
+        pathname="",
+        lineno=0,
+        msg="",
+        args=("127.0.0.1:1", method, path, "1.1", status),
+        exc_info=None,
+    )
+
+
+def _json_example_payload() -> dict:
+    example_path = Path(__file__).resolve().parents[2] / "json_example" / "group" / "json_example.json"
+    event = json.loads(example_path.read_text(encoding="utf-8"))
+    return json.loads(event["message"][0]["data"]["data"])

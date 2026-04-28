@@ -7,7 +7,7 @@ from typing import Any, Protocol
 
 from schemas import BrainMessage, BrainResponse
 
-from modules.base import ModuleArguments, ModuleResult
+from modules.base import ModuleArguments, ModuleResult, parse_command_invocation
 
 
 TOOL_NAME = "tsperson.get_status"
@@ -135,17 +135,42 @@ class TSPersonModule:
 
     _QUERY_PATTERN = re.compile(r"^(?:查询人数|查询人类|ts状态|ts人数|ts在线|teamspeak状态)$", re.IGNORECASE)
     _HELP_PATTERN = re.compile(r"^(?:ts帮助|tsperson帮助|teamspeak帮助)$", re.IGNORECASE)
+    _COMMAND_ALIASES = (
+        "ts",
+        "tsperson",
+        "teamspeak",
+        "查询人数",
+        "查询人类",
+        "ts状态",
+        "ts人数",
+        "ts在线",
+        "teamspeak状态",
+        "ts帮助",
+        "tsperson帮助",
+        "teamspeak帮助",
+    )
+    _COMMAND_HELP_ARGUMENTS = {"help", "帮助", "?"}
 
     def __init__(self, provider: StatusProvider | None = None, config: TS3Config | None = None) -> None:
         self.provider = provider
-        self.config = config or TS3Config.from_env()
+        self.config = config
 
     def detect(self, text: str) -> bool:
         stripped = text.strip()
-        return self._HELP_PATTERN.match(stripped) is not None or self._QUERY_PATTERN.match(stripped) is not None
+        return (
+            self._HELP_PATTERN.match(stripped) is not None
+            or self._QUERY_PATTERN.match(stripped) is not None
+            or parse_command_invocation(stripped, self._COMMAND_ALIASES) is not None
+        )
 
     def parse(self, text: str) -> ModuleArguments:
         stripped = text.strip()
+        invocation = parse_command_invocation(stripped, self._COMMAND_ALIASES)
+        if invocation is not None:
+            if invocation.name.endswith("帮助") or invocation.argument.lower() in self._COMMAND_HELP_ARGUMENTS:
+                return {"action": "help", "query": stripped}
+            return {"action": "status", "query": stripped}
+
         if self._HELP_PATTERN.match(stripped):
             return {"action": "help", "query": stripped}
         return {"action": "status", "query": stripped}
@@ -155,7 +180,8 @@ class TSPersonModule:
         if action == "help":
             return {"tool_name": TOOL_NAME, "ok": True, "action": "help", "message": HELP_TEXT}
 
-        missing = self.config.missing_fields()
+        config = self.config or TS3Config.from_env()
+        missing = config.missing_fields()
         if self.provider is None and missing:
             return {
                 "tool_name": TOOL_NAME,
@@ -166,7 +192,7 @@ class TSPersonModule:
                 "message": MISSING_CONFIG_TEXT,
             }
 
-        provider = self.provider or TS3StatusProvider(self.config)
+        provider = self.provider or TS3StatusProvider(config)
         try:
             status = provider.get_status()
         except Exception as exc:
