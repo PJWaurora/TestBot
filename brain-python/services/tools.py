@@ -69,10 +69,4 @@ def _remote_tool_owner(tool_name: str) -> RemoteModuleService | None:
     if tool_name in owners:
         return owners[tool_name]
 
-    module_name, separator, _ = tool_name.partition(".")
-    if separator:
-        for service in services:
-            if service.name == module_name:
-                return service
-
     return None

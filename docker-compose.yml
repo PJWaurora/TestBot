@@ -23,9 +23,9 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-testbot}
       POSTGRES_USER: ${POSTGRES_USER:-testbot}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-local-only}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     ports:
-      - "${POSTGRES_PORT:-5432}:5432"
+      - "${POSTGRES_HOST:-127.0.0.1}:${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
@@ -42,8 +42,8 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-testbot}
       POSTGRES_USER: ${POSTGRES_USER:-testbot}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-local-only}
-      PGPASSWORD: ${POSTGRES_PASSWORD:-change-me-local-only}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      PGPASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
     volumes:
       - ./database/migrations:/migrations:ro
     depends_on:
@@ -59,7 +59,7 @@ services:
   brain-python:
     build:
       context: ./brain-python
-      network: ${DOCKER_BUILD_NETWORK:-host}
+      network: ${DOCKER_BUILD_NETWORK:-default}
       args:
         <<: *build-proxy-args
     env_file:
@@ -95,7 +95,7 @@ services:
     build:
       context: ./gateway-go
       target: dev
-      network: ${DOCKER_BUILD_NETWORK:-host}
+      network: ${DOCKER_BUILD_NETWORK:-default}
       args:
         <<: *build-proxy-args
     environment:
@@ -112,17 +112,17 @@ services:
         condition: service_healthy
 
   napcat:
-    image: ${NAPCAT_IMAGE:-mlikiowa/napcat-docker:latest}
+    image: ${NAPCAT_IMAGE:?set NAPCAT_IMAGE to a pinned NapCat image tag}
     profiles:
       - napcat
     restart: unless-stopped
     ports:
-      - "${NAPCAT_WEBUI_PORT:-6099}:6099"
-      - "${NAPCAT_HTTP_PORT:-3000}:3000"
-      - "${NAPCAT_WS_PORT:-3001}:3001"
+      - "${NAPCAT_BIND_HOST:-127.0.0.1}:${NAPCAT_WEBUI_PORT:-6099}:6099"
+      - "${NAPCAT_BIND_HOST:-127.0.0.1}:${NAPCAT_HTTP_PORT:-3000}:3000"
+      - "${NAPCAT_BIND_HOST:-127.0.0.1}:${NAPCAT_WS_PORT:-3001}:3001"
     environment:
-      NAPCAT_UID: ${NAPCAT_UID:-0}
-      NAPCAT_GID: ${NAPCAT_GID:-0}
+      NAPCAT_UID: ${NAPCAT_UID:-1000}
+      NAPCAT_GID: ${NAPCAT_GID:-1000}
       TZ: ${TZ:-Asia/Shanghai}
     volumes:
       - ${NAPCAT_DATA_DIR:-./napcat}/qq_data:/app/.config/QQ

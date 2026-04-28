@@ -49,7 +49,7 @@ class DeterministicModuleRegistry:
         remote_request = _request_copy(request, text) if text != request.text else request
         for service in self._remote_modules():
             if not _module_group_allowed(service.name, context):
-                return _blocked_response(service.name, context)
+                continue
 
             response = service.handle(remote_request)
             if response is not None and (response.handled or response.should_reply):

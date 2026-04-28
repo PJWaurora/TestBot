@@ -46,3 +46,18 @@ jobs:
       - name: Run Python tests
         working-directory: brain-python
         run: python -m pytest
+
+  compose-check:
+    name: Compose config
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Validate compose config
+        env:
+          POSTGRES_PASSWORD: ci-only-password
+          DATABASE_URL: postgres://testbot:ci-only-password@postgres:5432/testbot?sslmode=disable
+          NAPCAT_IMAGE: mlikiowa/napcat-docker:latest
+        run: docker compose config
