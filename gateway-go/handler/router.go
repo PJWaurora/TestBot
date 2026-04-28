@@ -52,15 +52,6 @@ func Dispatch(data []byte) []napcat.Action {
 	}
 
 	eventType := message.PrimaryType()
-	log.Printf(
-		"路由分发中... type=%s message_type=%s user_id=%d group_id=%d text=%q",
-		eventType,
-		message.MessageType,
-		message.UserID,
-		message.GroupID,
-		message.Text,
-	)
-
 	if actions, handled := DispatchBrain(message); handled {
 		return actions
 	}
@@ -84,7 +75,7 @@ func Dispatch(data []byte) []napcat.Action {
 		return group.HandleAt(message)
 
 	default:
-		log.Println("未知事件类型:", eventType)
+		return nil
 	}
 
 	return nil
@@ -144,7 +135,18 @@ func DispatchBrain(message normalizer.IncomingMessage) ([]napcat.Action, bool) {
 	actions := BrainResponseActions(message, response)
 	if len(actions) == 0 {
 		log.Printf("Brain 已处理但未生成可发送 action")
+		return nil, true
 	}
+	log.Printf(
+		"Brain 触发回复: type=%s message_type=%s user_id=%d group_id=%d actions=%d messages=%d reply_len=%d",
+		message.PrimaryType(),
+		message.MessageType,
+		message.UserID,
+		message.GroupID,
+		len(actions),
+		len(response.Messages),
+		len(response.Reply),
+	)
 	return actions, true
 }
 
