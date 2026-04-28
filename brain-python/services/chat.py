@@ -1,4 +1,7 @@
-from schemas import BrainMessage, BrainResponse, ChatRequest, ToolCall, ToolCallRequest
+import json
+from typing import Any
+
+from schemas import BrainJSONMessage, BrainMessage, BrainResponse, ChatRequest, ToolCall, ToolCallRequest
 from modules.base import ModuleContext, parse_command_invocation
 from modules.registry import default_registry
 from services.tools import call_tool
@@ -6,14 +9,16 @@ from services.tools import call_tool
 
 def build_chat_response(request: ChatRequest) -> BrainResponse:
     text, context = _request_text_and_context(request)
-    if not text:
+    module_texts = _request_module_texts(request, text)
+    if not text and not module_texts:
         return BrainResponse(handled=False, should_reply=False)
 
-    module_response = default_registry.handle(text, context)
-    if module_response is not None:
-        return module_response
+    for module_text in module_texts:
+        module_response = default_registry.handle(module_text, context)
+        if module_response is not None:
+            return module_response
 
-    tool_request = _plan_tool_call(text)
+    tool_request = _plan_tool_call(text) if text else None
     if tool_request is not None:
         result = call_tool(tool_request)
         reply = str(result.data.get("text", "")) if result.ok else ""
@@ -27,6 +32,24 @@ def build_chat_response(request: ChatRequest) -> BrainResponse:
         )
 
     return BrainResponse(handled=False, should_reply=False, metadata={"reason": "no_route"})
+
+
+def _request_module_texts(request: ChatRequest, selected_text: str) -> list[str]:
+    candidates = []
+    if selected_text:
+        candidates.append(selected_text)
+
+    for segment in request.text_segments:
+        text = segment.strip()
+        if text:
+            candidates.append(text)
+
+    for json_message in request.json_messages:
+        text = _json_message_text(json_message)
+        if text:
+            candidates.append(text)
+
+    return _dedupe_texts(candidates)
 
 
 def _request_text_and_context(request: ChatRequest) -> tuple[str, ModuleContext]:
@@ -48,6 +71,47 @@ def _request_text_and_context(request: ChatRequest) -> tuple[str, ModuleContext]
 
 def _message_text(message: BrainMessage) -> str:
     return message.text or message.content
+
+
+def _json_message_text(message: BrainJSONMessage) -> str:
+    parts = []
+    parts.extend(_json_string_values(message.parsed))
+    if message.raw:
+        try:
+            decoded = json.loads(message.raw)
+        except json.JSONDecodeError:
+            parts.append(message.raw)
+        else:
+            parts.extend(_json_string_values(decoded))
+    return "\n".join(_dedupe_texts(parts))
+
+
+def _json_string_values(value: Any) -> list[str]:
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, dict):
+        parts = []
+        for child in value.values():
+            parts.extend(_json_string_values(child))
+        return parts
+    if isinstance(value, list):
+        parts = []
+        for child in value:
+            parts.extend(_json_string_values(child))
+        return parts
+    return []
+
+
+def _dedupe_texts(values: list[str]) -> list[str]:
+    seen = set()
+    out = []
+    for value in values:
+        text = value.strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        out.append(text)
+    return out
 
 
 def _top_level_context(request: ChatRequest) -> ModuleContext:

@@ -1,4 +1,6 @@
+import json
 import logging
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -189,6 +191,55 @@ def test_bilibili_short_link_is_detected_without_network_resolution() -> None:
     assert body["handled"] is True
     assert "b23.tv/abc123" in body["reply"]
     assert "resolution disabled" in body["reply"]
+
+
+def test_bilibili_json_miniapp_detects_qqdocurl() -> None:
+    payload = _json_example_payload()
+
+    response = client.post(
+        "/chat",
+        json={
+            "primary_type": "json",
+            "message_type": "group",
+            "group_id": "1",
+            "json_messages": [
+                {
+                    "raw": json.dumps(payload, ensure_ascii=False),
+                    "parsed": payload,
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert body["should_reply"] is True
+    assert "https://b23.tv/q576nmx" in body["reply"]
+
+
+def test_bilibili_json_miniapp_detects_news_jump_url() -> None:
+    response = client.post(
+        "/chat",
+        json={
+            "json_messages": [
+                {
+                    "parsed": {
+                        "meta": {
+                            "news": {
+                                "jumpUrl": "https://www.bilibili.com/video/BV1xx411c7mD"
+                            }
+                        }
+                    }
+                }
+            ],
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert "BV1xx411c7mD" in body["reply"]
 
 
 class FakeTSProvider:
@@ -383,3 +434,9 @@ def _access_record(method: str, path: str, status: int) -> logging.LogRecord:
         args=("127.0.0.1:1", method, path, "1.1", status),
         exc_info=None,
     )
+
+
+def _json_example_payload() -> dict:
+    example_path = Path(__file__).resolve().parents[2] / "json_example" / "group" / "json_example.json"
+    event = json.loads(example_path.read_text(encoding="utf-8"))
+    return json.loads(event["message"][0]["data"]["data"])
