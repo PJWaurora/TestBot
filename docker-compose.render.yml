@@ -1,0 +1,38 @@
+services:
+  module-bilibili:
+    environment:
+      RENDERER_ENABLED: ${RENDERER_ENABLED:-false}
+      RENDERER_INTERNAL_BASE_URL: ${RENDERER_INTERNAL_BASE_URL:-http://renderer-rust:8020}
+      RENDERER_TIMEOUT: ${RENDERER_TIMEOUT:-3}
+
+  module-tsperson:
+    environment:
+      RENDERER_ENABLED: ${RENDERER_ENABLED:-false}
+      RENDERER_INTERNAL_BASE_URL: ${RENDERER_INTERNAL_BASE_URL:-http://renderer-rust:8020}
+      RENDERER_TIMEOUT: ${RENDERER_TIMEOUT:-3}
+
+  renderer-rust:
+    build:
+      context: ${RENDER_SERVICE_CONTEXT:-../testbot-render-service}
+    env_file:
+      - path: ./config/modules/render.env
+        required: false
+    environment:
+      RENDERER_PUBLIC_BASE_URL: ${RENDERER_PUBLIC_BASE_URL:-http://renderer-rust:8020}
+    ports:
+      - "${RENDER_SERVICE_PORT:-8020}:8020"
+    volumes:
+      - renderer-assets:/data/assets
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "wget -qO- http://127.0.0.1:8020/health >/dev/null 2>&1 || curl -fsS http://127.0.0.1:8020/health >/dev/null",
+        ]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+volumes:
+  renderer-assets:
