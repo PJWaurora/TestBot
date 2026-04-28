@@ -98,6 +98,16 @@ ws://<gateway-host>:808/ws
 ws://gateway-go:808/ws
 ```
 
+compose 里的 NapCat 三个端口可以分开绑定。如果只想公网访问 WebUI，
+只开放 6099，OneBot HTTP/WebSocket 继续留在本机：
+
+```env
+NAPCAT_WEBUI_BIND_HOST=0.0.0.0
+NAPCAT_HTTP_BIND_HOST=127.0.0.1
+NAPCAT_WS_BIND_HOST=127.0.0.1
+NAPCAT_WEBUI_PORT=6099
+```
+
 ## 启动模块服务
 
 模块模式会额外启动 Bilibili 和 TSPerson 两个外部 HTTP 模块服务，并把它们注册到 Brain。

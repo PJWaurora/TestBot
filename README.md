@@ -216,6 +216,15 @@ Start NapCat only when you want Docker-managed NapCat:
 docker compose --profile napcat up -d napcat
 ```
 
+NapCat port binding is split by endpoint. Keep HTTP and WebSocket local unless
+you explicitly need public access:
+
+```env
+NAPCAT_WEBUI_BIND_HOST=0.0.0.0
+NAPCAT_HTTP_BIND_HOST=127.0.0.1
+NAPCAT_WS_BIND_HOST=127.0.0.1
+```
+
 When NapCat runs in the same compose project, configure its WebSocket client to:
 
 ```text
