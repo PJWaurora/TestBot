@@ -188,11 +188,17 @@ renderer 模式会额外启动 `renderer-rust`，让 Bilibili/TSPerson 输出图
 root `.env`：
 
 ```env
+RENDERER_PUBLIC_BASE_URL=http://renderer-rust:8020
+RENDER_SERVICE_PORT=8020
+```
+
+在哪个模块里启用图片卡片，就改对应模块 env：
+
+```env
+# config/modules/bilibili.env 或 config/modules/tsperson.env
 RENDERER_ENABLED=true
 RENDERER_INTERNAL_BASE_URL=http://renderer-rust:8020
-RENDERER_PUBLIC_BASE_URL=http://renderer-rust:8020
 RENDERER_TIMEOUT=3
-RENDER_SERVICE_PORT=8020
 ```
 
 启动核心、模块和 renderer：
