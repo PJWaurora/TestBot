@@ -80,6 +80,12 @@ The deterministic Bilibili module triggers in two ways:
 - Auto detect: send a BV ID, `bilibili.com/video/...`, or `b23.tv/...` link.
 - Command: `/bili <BV号或链接>`, `.bili <BV号或链接>`, `/bilibili ...`, or `.bv ...`.
 
+`b23.tv` links are resolved by following redirects and extracting the final BV
+ID. Configure `BILIBILI_SHORT_LINK_TIMEOUT` in `brain-python/.env` if the
+network needs a longer timeout. Runtime proxy environment variables are ignored
+by default; set `BILIBILI_TRUST_ENV_PROXY=true` only if the Brain container has a
+working HTTP/SOCKS proxy setup.
+
 The TeamSpeak module handles `查询人数`, `查询人类`, `ts状态`, `ts人数`, and
 `ts帮助`, plus signed commands such as `/ts`, `.ts`, `/ts 帮助`, and `.ts帮助`.
 TeamSpeak querying is optional and uses these environment variables when enabled:

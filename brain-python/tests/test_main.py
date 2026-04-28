@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from main import QuietAccessLogFilter, app
+from modules.bilibili import BilibiliModule
 from modules.tsperson import ChannelInfo, ClientInfo, ServerStatus, TSPersonModule, format_duration
 
 
@@ -183,17 +184,42 @@ def test_bilibili_command_without_argument_returns_help() -> None:
     assert "b23.tv" in body["reply"]
 
 
-def test_bilibili_short_link_is_detected_without_network_resolution() -> None:
+def test_bilibili_short_link_resolves_to_bvid(monkeypatch) -> None:
+    def fake_resolve(cls, url: str) -> tuple[str | None, str | None]:
+        return "BV1xx411c7mD", "https://www.bilibili.com/video/BV1xx411c7mD"
+
+    monkeypatch.setattr(BilibiliModule, "_resolve_short_link", classmethod(fake_resolve))
+
+    response = client.post("/chat", json={"text": "https://b23.tv/abc123"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert "BV1xx411c7mD" in body["reply"]
+    assert "https://www.bilibili.com/video/BV1xx411c7mD" in body["reply"]
+    assert "Resolved from: https://b23.tv/abc123" in body["reply"]
+
+
+def test_bilibili_short_link_falls_back_when_resolution_fails(monkeypatch) -> None:
+    def fake_resolve(cls, url: str) -> tuple[str | None, str | None]:
+        return None, None
+
+    monkeypatch.setattr(BilibiliModule, "_resolve_short_link", classmethod(fake_resolve))
+
     response = client.post("/chat", json={"text": "https://b23.tv/abc123"})
 
     assert response.status_code == 200
     body = response.json()
     assert body["handled"] is True
     assert "b23.tv/abc123" in body["reply"]
-    assert "resolution disabled" in body["reply"]
+    assert "resolution failed" in body["reply"]
 
 
-def test_bilibili_json_miniapp_detects_qqdocurl() -> None:
+def test_bilibili_json_miniapp_detects_qqdocurl(monkeypatch) -> None:
+    def fake_resolve(cls, url: str) -> tuple[str | None, str | None]:
+        return "BV1jsonCard1", "https://www.bilibili.com/video/BV1jsonCard1"
+
+    monkeypatch.setattr(BilibiliModule, "_resolve_short_link", classmethod(fake_resolve))
     payload = _json_example_payload()
 
     response = client.post(
@@ -215,7 +241,8 @@ def test_bilibili_json_miniapp_detects_qqdocurl() -> None:
     body = response.json()
     assert body["handled"] is True
     assert body["should_reply"] is True
-    assert "https://b23.tv/q576nmx" in body["reply"]
+    assert "BV1jsonCard1" in body["reply"]
+    assert "Resolved from: https://b23.tv/q576nmx" in body["reply"]
 
 
 def test_bilibili_json_miniapp_detects_news_jump_url() -> None:
