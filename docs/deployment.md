@@ -111,6 +111,16 @@ If NapCat runs in the same compose project, use:
 ws://gateway-go:808/ws
 ```
 
+NapCat exposes three ports in compose. For public WebUI access, open only the
+WebUI bind host and keep the OneBot HTTP/WebSocket ports local:
+
+```env
+NAPCAT_WEBUI_BIND_HOST=0.0.0.0
+NAPCAT_HTTP_BIND_HOST=127.0.0.1
+NAPCAT_WS_BIND_HOST=127.0.0.1
+NAPCAT_WEBUI_PORT=6099
+```
+
 ## Module Services
 
 Module mode adds Bilibili and TSPerson as external HTTP services and registers
