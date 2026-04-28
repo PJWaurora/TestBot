@@ -9,9 +9,11 @@ TestBot is split into a Go WebSocket gateway, a Python Brain service, database a
 ├── gateway-go/      # Go WebSocket gateway for NapCat events and replies
 ├── brain-python/    # FastAPI service for chat/brain behavior
 ├── database/        # Database initialization and schema assets
+├── config/modules/  # Optional local module service env files
 ├── json_example/    # Example NapCat event payloads
 ├── docs/            # Project notes and roadmap
 ├── docker-compose.yml
+├── docker-compose.modules.yml
 └── README.md
 ```
 
@@ -136,6 +138,36 @@ Start Postgres, Brain, and Gateway:
 ```bash
 docker compose up -d postgres brain-python gateway-go
 ```
+
+Start the core services with the optional Bilibili and TSPerson module services:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.modules.yml up
+```
+
+The modules compose overlay expects the module repositories to be cloned next to
+this repository by default:
+
+```text
+../testbot-module-bilibili
+../testbot-module-tsperson
+```
+
+Use `BILIBILI_MODULE_CONTEXT` and `TSPERSON_MODULE_CONTEXT` in the root `.env`
+when the module repositories live elsewhere. The overlay publishes module ports
+with `BILIBILI_MODULE_PORT` and `TSPERSON_MODULE_PORT`, defaulting to `8011` and
+`8012`.
+
+Optional per-module env files live under `config/modules/`. Copy the examples
+when you need local module-specific settings:
+
+```bash
+cp config/modules/bilibili.env.example config/modules/bilibili.env
+cp config/modules/tsperson.env.example config/modules/tsperson.env
+```
+
+Files matching `config/modules/*.env` are local-only and must not contain
+committed secrets. The `.env.example` files are tracked as safe templates.
 
 Run SQL migrations on a fresh database:
 

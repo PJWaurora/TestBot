@@ -5,6 +5,8 @@
 .env.*
 !.env.example
 !.env.*.example
+config/modules/*.env
+!config/modules/*.env.example
 .venv/
 
 # Python
