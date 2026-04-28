@@ -252,4 +252,9 @@ python3 -m pytest
 
 ## Documentation
 
+See [docs/deployment.md](docs/deployment.md) for detailed deployment,
+module-service, and renderer setup.
+
+中文版本见 [docs/deployment.zh-CN.md](docs/deployment.zh-CN.md)。
+
 See [docs/roadmap.md](docs/roadmap.md) for the current roadmap.
