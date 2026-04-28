@@ -5,6 +5,7 @@
 - TestBot 主仓库：Go Gateway、Python Brain、Postgres、数据库迁移和 compose overlay。
 - Bilibili 模块服务：`PJWaurora/testbot-module-bilibili`。
 - TSPerson 模块服务：`PJWaurora/testbot-module-tsperson`。
+- Weather 模块服务：`PJWaurora/testbot-module-weather`。
 - Rust 绘图服务：`PJWaurora/testbot-render-service`。
 - Media 服务：`PJWaurora/testbot-media-service`。
 
@@ -19,6 +20,7 @@ workspace/
 ├── TestBot/
 ├── testbot-module-bilibili/
 ├── testbot-module-tsperson/
+├── testbot-module-weather/
 ├── testbot-render-service/
 └── testbot-media-service/
 ```
@@ -28,6 +30,7 @@ workspace/
 ```env
 BILIBILI_MODULE_CONTEXT=../testbot-module-bilibili
 TSPERSON_MODULE_CONTEXT=../testbot-module-tsperson
+WEATHER_MODULE_CONTEXT=../testbot-module-weather
 RENDER_SERVICE_CONTEXT=../testbot-render-service
 MEDIA_SERVICE_CONTEXT=../testbot-media-service
 ```
@@ -49,6 +52,7 @@ cp .env.example .env
 cp brain-python/.env.example brain-python/.env
 cp config/modules/bilibili.env.example config/modules/bilibili.env
 cp config/modules/tsperson.env.example config/modules/tsperson.env
+cp config/modules/weather.env.example config/modules/weather.env
 cp config/modules/render.env.example config/modules/render.env
 ```
 
@@ -64,6 +68,7 @@ BRAIN_IMAGE=testbot-brain-python:latest
 GATEWAY_IMAGE=testbot-gateway-go:latest
 BILIBILI_MODULE_IMAGE=testbot-module-bilibili:latest
 TSPERSON_MODULE_IMAGE=testbot-module-tsperson:latest
+WEATHER_MODULE_IMAGE=testbot-module-weather:latest
 RENDER_SERVICE_IMAGE=testbot-renderer-rust:latest
 MEDIA_SERVICE_IMAGE=testbot-media-service:latest
 NAPCAT_IMAGE=mlikiowa/napcat-docker:latest
@@ -71,11 +76,11 @@ NAPCAT_IMAGE=mlikiowa/napcat-docker:latest
 
 `postgres` 和 `migrate` 会共用 `POSTGRES_IMAGE`，这是有意的：`migrate`
 只是一次性 SQL runner，用同一个镜像里的 `psql` 执行迁移。Bilibili、
-TSPerson 和 renderer 是三个独立服务仓库，所以是三个独立镜像。
+TSPerson、Weather 和 renderer 是独立服务仓库，所以是独立镜像。
 
 ## 只启动核心服务
 
-核心模式只启动 Postgres、Python Brain 和 Go Gateway，不启动 Bilibili、TSPerson 或 renderer。
+核心模式只启动 Postgres、Python Brain 和 Go Gateway，不启动 Bilibili、TSPerson、Weather 或 renderer。
 如果是全新数据库，或者刚拉取了新的 SQL migration，先跑迁移再启动 Brain：
 
 ```bash
@@ -84,7 +89,7 @@ docker compose --profile tools run --rm migrate
 docker compose up -d brain-python gateway-go
 ```
 
-这个模式下，Brain 默认只加载本地 fake echo 模块。普通文本、Bilibili 链接和 TSPerson 命令会保持静默，除非命中 fake planner 或以后配置的其他模块。
+这个模式下，Brain 默认只加载本地 fake echo 模块。普通文本、Bilibili 链接、TSPerson 命令和 Weather 命令会保持静默，除非命中 fake planner 或以后配置的其他模块。
 
 检查服务：
 
@@ -117,15 +122,16 @@ NAPCAT_WEBUI_PORT=6099
 
 ## 启动模块服务
 
-模块模式会额外启动 Bilibili 和 TSPerson 两个外部 HTTP 模块服务，并把它们注册到 Brain。
+模块模式会额外启动 Bilibili、TSPerson 和 Weather 三个外部 HTTP 模块服务，并把它们注册到 Brain。
 
 root `.env`：
 
 ```env
-BRAIN_MODULE_SERVICES=bilibili=http://module-bilibili:8011,tsperson=http://module-tsperson:8012
+BRAIN_MODULE_SERVICES=bilibili=http://module-bilibili:8011,tsperson=http://module-tsperson:8012,weather=http://module-weather:8013
 BRAIN_MODULE_TIMEOUT=5
 BILIBILI_MODULE_PORT=8011
 TSPERSON_MODULE_PORT=8012
+WEATHER_MODULE_PORT=8013
 OUTBOX_TOKEN=<random-shared-token>
 ```
 
@@ -140,6 +146,7 @@ docker compose -f docker-compose.yml -f docker-compose.modules.yml up -d
 ```bash
 curl http://127.0.0.1:8011/health
 curl http://127.0.0.1:8012/health
+curl http://127.0.0.1:8013/health
 curl http://127.0.0.1:8000/tools
 ```
 
@@ -200,6 +207,31 @@ BILIBILI_MEDIA_BASE_URL=http://testbot-media:8030
 ```
 
 群黑白名单用于控制模块在哪些群生效。blocklist 优先级高于 allowlist。allowlist 为空代表默认允许所有群。
+
+## Weather 模块
+
+Weather 模块支持：
+
+- `天气 <城市>`
+- `<城市>天气`
+- `/weather <城市>`
+- `.weather <城市>`
+- `weather.get_forecast(city)` tool call
+
+可选 `config/modules/weather.env`：
+
+```env
+WEATHER_GROUP_ALLOWLIST=
+WEATHER_GROUP_BLOCKLIST=
+WEATHER_COMMAND_PREFIXES=/,.
+WEATHER_AMAP_KEY=
+WEATHER_AMAP_BASE_URL=https://restapi.amap.com/v3/weather/weatherInfo
+WEATHER_TIMEOUT=5
+WEATHER_TRUST_ENV_PROXY=false
+```
+
+`WEATHER_AMAP_KEY` 是调用高德天气接口所需的 key。第一版 Weather 服务只返回文字，
+后续可以再接 renderer 生成天气卡片。
 
 ## Media 服务
 
@@ -362,6 +394,13 @@ cd ../testbot-module-tsperson
 python -m uvicorn tsperson_service.app:app --host 0.0.0.0 --port 8012 --reload
 ```
 
+运行 Weather 模块：
+
+```bash
+cd ../testbot-module-weather
+python -m uvicorn weather_service.app:app --host 0.0.0.0 --port 8013 --reload
+```
+
 运行 renderer：
 
 ```bash
@@ -372,7 +411,7 @@ cargo run
 本地 Brain 调本地模块时，设置：
 
 ```env
-BRAIN_MODULE_SERVICES=bilibili=http://127.0.0.1:8011,tsperson=http://127.0.0.1:8012
+BRAIN_MODULE_SERVICES=bilibili=http://127.0.0.1:8011,tsperson=http://127.0.0.1:8012,weather=http://127.0.0.1:8013
 ```
 
 ## 测试命令
@@ -399,6 +438,14 @@ TSPerson 模块：
 
 ```bash
 cd ../testbot-module-tsperson
+python -m pytest
+docker build .
+```
+
+Weather 模块：
+
+```bash
+cd ../testbot-module-weather
 python -m pytest
 docker build .
 ```

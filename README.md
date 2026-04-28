@@ -70,12 +70,12 @@ curl http://localhost:8000/health
 
 The Brain service exposes tools through `GET /tools` and `POST /tools/call`. Chat requests sent to `POST /chat` are resolved by the deterministic command router first. By default, Brain core loads only the local fake echo module; `GET /tools` returns only `echo` unless remote module services are configured.
 
-Bilibili and TSPerson are external HTTP module services, not default in-core Brain modules. Enable them through `docker-compose.modules.yml` and `BRAIN_MODULE_SERVICES`.
+Bilibili, TSPerson, and Weather are external HTTP module services, not default in-core Brain modules. Enable them through `docker-compose.modules.yml` and `BRAIN_MODULE_SERVICES`.
 
 `BRAIN_MODULE_SERVICES` is a comma-separated list of `name=url` entries:
 
 ```text
-BRAIN_MODULE_SERVICES=bilibili=http://module-bilibili:8011,tsperson=http://module-tsperson:8012
+BRAIN_MODULE_SERVICES=bilibili=http://module-bilibili:8011,tsperson=http://module-tsperson:8012,weather=http://module-weather:8013
 BRAIN_MODULE_TIMEOUT=5
 ```
 
@@ -107,10 +107,14 @@ BRAIN_MODULE_BILIBILI_GROUP_ALLOWLIST
 BRAIN_MODULE_BILIBILI_GROUP_BLOCKLIST
 BRAIN_MODULE_TSPERSON_GROUP_ALLOWLIST
 BRAIN_MODULE_TSPERSON_GROUP_BLOCKLIST
+BRAIN_MODULE_WEATHER_GROUP_ALLOWLIST
+BRAIN_MODULE_WEATHER_GROUP_BLOCKLIST
 BILIBILI_GROUP_ALLOWLIST
 BILIBILI_GROUP_BLOCKLIST
 TSPERSON_GROUP_ALLOWLIST
 TSPERSON_GROUP_BLOCKLIST
+WEATHER_GROUP_ALLOWLIST
+WEATHER_GROUP_BLOCKLIST
 ```
 
 Use comma, semicolon, or whitespace separated group IDs. Blocklists win over
@@ -138,9 +142,10 @@ only for that local-proxy case.
 
 Compose image names are explicit in `.env.example`: core uses
 `testbot-brain-python:latest` and `testbot-gateway-go:latest`; module overlays
-use `testbot-module-bilibili:latest`, `testbot-module-tsperson:latest`, and
-`testbot-renderer-rust:latest`. `postgres` and `migrate` intentionally share
-`POSTGRES_IMAGE` because `migrate` only runs `psql` for SQL migrations.
+use `testbot-module-bilibili:latest`, `testbot-module-tsperson:latest`,
+`testbot-module-weather:latest`, and `testbot-renderer-rust:latest`.
+`postgres` and `migrate` intentionally share `POSTGRES_IMAGE` because
+`migrate` only runs `psql` for SQL migrations.
 
 Start Postgres, Brain, and Gateway:
 
@@ -161,7 +166,7 @@ Pass compose `up` flags when needed:
 scripts/start-all.sh --build
 ```
 
-Start the core services with the optional Bilibili and TSPerson module services:
+Start the core services with the optional Bilibili, TSPerson, and Weather module services:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.modules.yml up
@@ -173,12 +178,14 @@ this repository by default:
 ```text
 ../testbot-module-bilibili
 ../testbot-module-tsperson
+../testbot-module-weather
 ```
 
-Use `BILIBILI_MODULE_CONTEXT` and `TSPERSON_MODULE_CONTEXT` in the root `.env`
-when the module repositories live elsewhere. The overlay publishes module ports
-with `BILIBILI_MODULE_PORT` and `TSPERSON_MODULE_PORT`, defaulting to `8011` and
-`8012`.
+Use `BILIBILI_MODULE_CONTEXT`, `TSPERSON_MODULE_CONTEXT`, and
+`WEATHER_MODULE_CONTEXT` in the root `.env` when the module repositories live
+elsewhere. The overlay publishes module ports with `BILIBILI_MODULE_PORT`,
+`TSPERSON_MODULE_PORT`, and `WEATHER_MODULE_PORT`, defaulting to `8011`,
+`8012`, and `8013`.
 
 Start the core services, module services, and optional Rust renderer service.
 The render file is an overlay, so use it together with the base and module
@@ -211,6 +218,7 @@ when you need local module-specific settings:
 ```bash
 cp config/modules/bilibili.env.example config/modules/bilibili.env
 cp config/modules/tsperson.env.example config/modules/tsperson.env
+cp config/modules/weather.env.example config/modules/weather.env
 cp config/modules/render.env.example config/modules/render.env
 ```
 

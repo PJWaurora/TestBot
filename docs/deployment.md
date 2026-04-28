@@ -5,6 +5,7 @@ This guide covers the current split-service deployment model:
 - TestBot core repository: Go Gateway, Python Brain, Postgres, migrations, and compose overlays.
 - Bilibili module service: `PJWaurora/testbot-module-bilibili`.
 - TSPerson module service: `PJWaurora/testbot-module-tsperson`.
+- Weather module service: `PJWaurora/testbot-module-weather`.
 - Rust renderer service: `PJWaurora/testbot-render-service`.
 - Media service: `PJWaurora/testbot-media-service`.
 
@@ -22,6 +23,7 @@ workspace/
 ├── TestBot/
 ├── testbot-module-bilibili/
 ├── testbot-module-tsperson/
+├── testbot-module-weather/
 ├── testbot-render-service/
 └── testbot-media-service/
 ```
@@ -31,6 +33,7 @@ Default compose paths expect exactly this layout:
 ```env
 BILIBILI_MODULE_CONTEXT=../testbot-module-bilibili
 TSPERSON_MODULE_CONTEXT=../testbot-module-tsperson
+WEATHER_MODULE_CONTEXT=../testbot-module-weather
 RENDER_SERVICE_CONTEXT=../testbot-render-service
 MEDIA_SERVICE_CONTEXT=../testbot-media-service
 ```
@@ -59,6 +62,7 @@ cp .env.example .env
 cp brain-python/.env.example brain-python/.env
 cp config/modules/bilibili.env.example config/modules/bilibili.env
 cp config/modules/tsperson.env.example config/modules/tsperson.env
+cp config/modules/weather.env.example config/modules/weather.env
 cp config/modules/render.env.example config/modules/render.env
 ```
 
@@ -75,20 +79,22 @@ BRAIN_IMAGE=testbot-brain-python:latest
 GATEWAY_IMAGE=testbot-gateway-go:latest
 BILIBILI_MODULE_IMAGE=testbot-module-bilibili:latest
 TSPERSON_MODULE_IMAGE=testbot-module-tsperson:latest
+WEATHER_MODULE_IMAGE=testbot-module-weather:latest
 RENDER_SERVICE_IMAGE=testbot-renderer-rust:latest
 MEDIA_SERVICE_IMAGE=testbot-media-service:latest
 NAPCAT_IMAGE=mlikiowa/napcat-docker:latest
 ```
 
 `postgres` and `migrate` intentionally share `POSTGRES_IMAGE`; `migrate` is a
-one-shot SQL runner that uses the same image for `psql`. Bilibili, TSPerson, and
-renderer are separate images because they are separate service repositories.
+one-shot SQL runner that uses the same image for `psql`. Bilibili, TSPerson,
+Weather, and renderer are separate images because they are separate service
+repositories.
 
 ## Core Only
 
 Core-only mode runs Postgres, Python Brain, and Go Gateway. It does not start
-Bilibili, TSPerson, or the renderer. On a fresh database, or after pulling new
-SQL migrations, run the migration job before starting Brain:
+Bilibili, TSPerson, Weather, or the renderer. On a fresh database, or after
+pulling new SQL migrations, run the migration job before starting Brain:
 
 ```bash
 docker compose up -d postgres
@@ -97,8 +103,8 @@ docker compose up -d brain-python gateway-go
 ```
 
 In this mode Brain loads only the local fake echo module. Normal text, Bilibili
-links, and TSPerson commands remain silent unless they match the fake planner or
-another configured module.
+links, TSPerson commands, and Weather commands remain silent unless they match
+the fake planner or another configured module.
 
 Check services:
 
@@ -131,16 +137,17 @@ NAPCAT_WEBUI_PORT=6099
 
 ## Module Services
 
-Module mode adds Bilibili and TSPerson as external HTTP services and registers
-them with Brain.
+Module mode adds Bilibili, TSPerson, and Weather as external HTTP services and
+registers them with Brain.
 
 Root `.env`:
 
 ```env
-BRAIN_MODULE_SERVICES=bilibili=http://module-bilibili:8011,tsperson=http://module-tsperson:8012
+BRAIN_MODULE_SERVICES=bilibili=http://module-bilibili:8011,tsperson=http://module-tsperson:8012,weather=http://module-weather:8013
 BRAIN_MODULE_TIMEOUT=5
 BILIBILI_MODULE_PORT=8011
 TSPERSON_MODULE_PORT=8012
+WEATHER_MODULE_PORT=8013
 OUTBOX_TOKEN=<random-shared-token>
 ```
 
@@ -155,6 +162,7 @@ Check module health:
 ```bash
 curl http://127.0.0.1:8011/health
 curl http://127.0.0.1:8012/health
+curl http://127.0.0.1:8013/health
 curl http://127.0.0.1:8000/tools
 ```
 
@@ -220,6 +228,32 @@ BILIBILI_MEDIA_BASE_URL=http://testbot-media:8030
 
 Use group allow/block lists when the module should only run in specific groups.
 Blocklists win over allowlists. Empty allowlists mean all groups are allowed.
+
+## Weather Module
+
+The Weather service handles:
+
+- `天气 <城市>`
+- `<城市>天气`
+- `/weather <城市>`
+- `.weather <城市>`
+- weather tool calls such as `weather.get_forecast(city)`
+
+Optional `config/modules/weather.env`:
+
+```env
+WEATHER_GROUP_ALLOWLIST=
+WEATHER_GROUP_BLOCKLIST=
+WEATHER_COMMAND_PREFIXES=/,.
+WEATHER_AMAP_KEY=
+WEATHER_AMAP_BASE_URL=https://restapi.amap.com/v3/weather/weatherInfo
+WEATHER_TIMEOUT=5
+WEATHER_TRUST_ENV_PROXY=false
+```
+
+`WEATHER_AMAP_KEY` is required for live Amap weather queries. The first Weather
+service version returns text only; renderer cards can be added later without
+changing the Brain/Gateway contract.
 
 ## Media Service
 
@@ -391,6 +425,13 @@ cd ../testbot-module-tsperson
 python -m uvicorn tsperson_service.app:app --host 0.0.0.0 --port 8012 --reload
 ```
 
+Run Weather module:
+
+```bash
+cd ../testbot-module-weather
+python -m uvicorn weather_service.app:app --host 0.0.0.0 --port 8013 --reload
+```
+
 Run renderer:
 
 ```bash
@@ -401,7 +442,7 @@ cargo run
 For local Brain to call local modules, set:
 
 ```env
-BRAIN_MODULE_SERVICES=bilibili=http://127.0.0.1:8011,tsperson=http://127.0.0.1:8012
+BRAIN_MODULE_SERVICES=bilibili=http://127.0.0.1:8011,tsperson=http://127.0.0.1:8012,weather=http://127.0.0.1:8013
 ```
 
 ## Test Commands
@@ -429,6 +470,14 @@ TSPerson module:
 
 ```bash
 cd ../testbot-module-tsperson
+python -m pytest
+docker build .
+```
+
+Weather module:
+
+```bash
+cd ../testbot-module-weather
 python -m pytest
 docker build .
 ```

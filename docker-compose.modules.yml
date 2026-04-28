@@ -1,12 +1,14 @@
 services:
   brain-python:
     environment:
-      BRAIN_MODULE_SERVICES: ${BRAIN_MODULE_SERVICES:-bilibili=http://module-bilibili:8011,tsperson=http://module-tsperson:8012}
+      BRAIN_MODULE_SERVICES: ${BRAIN_MODULE_SERVICES:-bilibili=http://module-bilibili:8011,tsperson=http://module-tsperson:8012,weather=http://module-weather:8013}
       BRAIN_MODULE_TIMEOUT: ${BRAIN_MODULE_TIMEOUT:-5}
     depends_on:
       module-bilibili:
         condition: service_started
       module-tsperson:
+        condition: service_started
+      module-weather:
         condition: service_started
 
   module-bilibili:
@@ -45,4 +47,23 @@ services:
         "0.0.0.0",
         "--port",
         "8012",
+      ]
+
+  module-weather:
+    image: ${WEATHER_MODULE_IMAGE:-testbot-module-weather:latest}
+    build:
+      context: ${WEATHER_MODULE_CONTEXT:-../testbot-module-weather}
+    env_file:
+      - path: ./config/modules/weather.env
+        required: false
+    ports:
+      - "${WEATHER_MODULE_PORT:-8013}:8013"
+    command:
+      [
+        "uvicorn",
+        "weather_service.app:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8013",
       ]
