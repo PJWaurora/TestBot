@@ -51,6 +51,24 @@ cp config/modules/render.env.example config/modules/render.env
 
 不要提交真实 `.env`、账号、密码或 token。
 
+## 镜像命名
+
+Compose 现在给每个服务都显式写了镜像名，本地 build 和容器来源会更清楚：
+
+```env
+POSTGRES_IMAGE=pgvector/pgvector:pg16
+BRAIN_IMAGE=testbot-brain-python:latest
+GATEWAY_IMAGE=testbot-gateway-go:latest
+BILIBILI_MODULE_IMAGE=testbot-module-bilibili:latest
+TSPERSON_MODULE_IMAGE=testbot-module-tsperson:latest
+RENDER_SERVICE_IMAGE=testbot-renderer-rust:latest
+NAPCAT_IMAGE=mlikiowa/napcat-docker:latest
+```
+
+`postgres` 和 `migrate` 会共用 `POSTGRES_IMAGE`，这是有意的：`migrate`
+只是一次性 SQL runner，用同一个镜像里的 `psql` 执行迁移。Bilibili、
+TSPerson 和 renderer 是三个独立服务仓库，所以是三个独立镜像。
+
 ## 只启动核心服务
 
 核心模式只启动 Postgres、Python Brain 和 Go Gateway，不启动 Bilibili、TSPerson 或 renderer。

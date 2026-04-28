@@ -19,7 +19,7 @@ x-gateway-env: &gateway-env
 
 services:
   postgres:
-    image: pgvector/pgvector:pg16
+    image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg16}
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-testbot}
       POSTGRES_USER: ${POSTGRES_USER:-testbot}
@@ -36,7 +36,7 @@ services:
       start_period: 10s
 
   migrate:
-    image: pgvector/pgvector:pg16
+    image: ${POSTGRES_IMAGE:-pgvector/pgvector:pg16}
     profiles:
       - tools
     environment:
@@ -57,6 +57,7 @@ services:
         psql -h postgres -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -v ON_ERROR_STOP=1 -f /migrations/000002_core_chat_tables.up.sql
 
   brain-python:
+    image: ${BRAIN_IMAGE:-testbot-brain-python:latest}
     build:
       context: ./brain-python
       network: ${DOCKER_BUILD_NETWORK:-default}
@@ -92,6 +93,7 @@ services:
       start_period: 10s
 
   gateway-go:
+    image: ${GATEWAY_IMAGE:-testbot-gateway-go:latest}
     build:
       context: ./gateway-go
       target: dev

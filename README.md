@@ -136,6 +136,12 @@ Docker build proxy variables in the root `.env` are optional. Leave them blank
 unless the build needs to reach a local proxy; set `DOCKER_BUILD_NETWORK=host`
 only for that local-proxy case.
 
+Compose image names are explicit in `.env.example`: core uses
+`testbot-brain-python:latest` and `testbot-gateway-go:latest`; module overlays
+use `testbot-module-bilibili:latest`, `testbot-module-tsperson:latest`, and
+`testbot-renderer-rust:latest`. `postgres` and `migrate` intentionally share
+`POSTGRES_IMAGE` because `migrate` only runs `psql` for SQL migrations.
+
 Start Postgres, Brain, and Gateway:
 
 ```bash

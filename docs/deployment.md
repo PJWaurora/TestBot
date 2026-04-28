@@ -60,6 +60,25 @@ cp config/modules/render.env.example config/modules/render.env
 
 Do not commit real `.env` files or secrets.
 
+## Image Naming
+
+Compose uses explicit image names for every service so local builds are easy to
+reason about:
+
+```env
+POSTGRES_IMAGE=pgvector/pgvector:pg16
+BRAIN_IMAGE=testbot-brain-python:latest
+GATEWAY_IMAGE=testbot-gateway-go:latest
+BILIBILI_MODULE_IMAGE=testbot-module-bilibili:latest
+TSPERSON_MODULE_IMAGE=testbot-module-tsperson:latest
+RENDER_SERVICE_IMAGE=testbot-renderer-rust:latest
+NAPCAT_IMAGE=mlikiowa/napcat-docker:latest
+```
+
+`postgres` and `migrate` intentionally share `POSTGRES_IMAGE`; `migrate` is a
+one-shot SQL runner that uses the same image for `psql`. Bilibili, TSPerson, and
+renderer are separate images because they are separate service repositories.
+
 ## Core Only
 
 Core-only mode runs Postgres, Python Brain, and Go Gateway. It does not start

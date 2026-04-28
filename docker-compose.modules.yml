@@ -10,6 +10,7 @@ services:
         condition: service_started
 
   module-bilibili:
+    image: ${BILIBILI_MODULE_IMAGE:-testbot-module-bilibili:latest}
     build:
       context: ${BILIBILI_MODULE_CONTEXT:-../testbot-module-bilibili}
     env_file:
@@ -28,6 +29,7 @@ services:
       ]
 
   module-tsperson:
+    image: ${TSPERSON_MODULE_IMAGE:-testbot-module-tsperson:latest}
     build:
       context: ${TSPERSON_MODULE_CONTEXT:-../testbot-module-tsperson}
     env_file:
