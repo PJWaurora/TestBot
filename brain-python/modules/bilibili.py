@@ -2,11 +2,16 @@ import re
 
 from schemas import BrainMessage, BrainResponse
 
-from modules.base import ModuleArguments, ModuleResult
+from modules.base import ModuleArguments, ModuleResult, parse_command_invocation
 
 
 class BilibiliModule:
     name = "bilibili"
+    command_aliases = ("bili", "bilibili", "bv", "b站")
+    help_text = (
+        "Bilibili 用法：/bili <BV号或链接>，也支持 .bili <BV号或链接>；"
+        "直接发送 BV、bilibili.com/video 或 b23.tv 链接也会自动解析。"
+    )
 
     BVID_PATTERN = re.compile(
         r"(?<![0-9A-Za-z])BV[0-9A-Za-z]{10}(?![0-9A-Za-z])"
@@ -20,9 +25,20 @@ class BilibiliModule:
     )
 
     def detect(self, text: str) -> bool:
-        return self._extract(text) is not None
+        return parse_command_invocation(text, self.command_aliases) is not None or self._extract(text) is not None
 
     def parse(self, text: str) -> ModuleArguments:
+        invocation = parse_command_invocation(text, self.command_aliases)
+        if invocation is not None:
+            if not invocation.argument:
+                return {"kind": "help", "source": "command", "command": invocation.name}
+            return self._extract(invocation.argument) or {
+                "kind": "invalid",
+                "source": "command",
+                "command": invocation.name,
+                "query": invocation.argument,
+            }
+
         return self._extract(text) or {}
 
     def call(self, arguments: ModuleArguments) -> ModuleResult:
@@ -43,6 +59,12 @@ class BilibiliModule:
                 "canonical_url": "",
                 "resolution": "pending",
             }
+
+        kind = arguments.get("kind")
+        if kind == "help":
+            return {"kind": "help", "message": self.help_text}
+        if kind == "invalid":
+            return {"kind": "invalid", "message": "没有识别到 Bilibili BV号或链接。" + self.help_text}
 
         return {"kind": "unknown", "canonical_url": ""}
 
@@ -88,6 +110,10 @@ class BilibiliModule:
         return None
 
     def _reply_text(self, result: ModuleResult) -> str:
+        message = result.get("message")
+        if isinstance(message, str) and message:
+            return message
+
         bvid = result.get("bvid")
         canonical_url = result.get("canonical_url")
         has_bvid = isinstance(bvid, str) and bvid

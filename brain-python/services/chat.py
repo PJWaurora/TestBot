@@ -1,5 +1,5 @@
 from schemas import BrainMessage, BrainResponse, ChatRequest, ToolCall, ToolCallRequest
-from modules.base import ModuleContext
+from modules.base import ModuleContext, parse_command_invocation
 from modules.registry import default_registry
 from services.tools import call_tool
 
@@ -73,8 +73,8 @@ def _string_id(value: str | int | None) -> str:
 
 
 def _plan_tool_call(text: str) -> ToolCallRequest | None:
-    command, _, argument = text.partition(" ")
-    if command.lower() != "/echo":
+    invocation = parse_command_invocation(text, ("echo",))
+    if invocation is None:
         return None
 
-    return ToolCallRequest(name="echo", arguments={"text": argument.strip()})
+    return ToolCallRequest(name="echo", arguments={"text": invocation.argument})

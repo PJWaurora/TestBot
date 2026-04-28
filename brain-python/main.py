@@ -23,7 +23,12 @@ from services.chat import build_chat_response
 from services.tools import call_tool, list_tools
 
 
-class HealthAccessLogFilter(logging.Filter):
+class QuietAccessLogFilter(logging.Filter):
+    _QUIET_SUCCESSFUL_ROUTES = {
+        ("GET", "/health"),
+        ("POST", "/chat"),
+    }
+
     def filter(self, record: logging.LogRecord) -> bool:
         if isinstance(record.args, tuple) and len(record.args) >= 5:
             method = record.args[1]
@@ -33,12 +38,12 @@ class HealthAccessLogFilter(logging.Filter):
                 status = int(status_code)
             except (TypeError, ValueError):
                 status = 0
-            if method == "GET" and path == "/health" and 200 <= status < 400:
+            if (method, path) in self._QUIET_SUCCESSFUL_ROUTES and 200 <= status < 400:
                 return False
         return True
 
 
-logging.getLogger("uvicorn.access").addFilter(HealthAccessLogFilter())
+logging.getLogger("uvicorn.access").addFilter(QuietAccessLogFilter())
 
 app = FastAPI(title="TestBot Python Brain")
 

@@ -65,7 +65,7 @@ curl http://localhost:8000/health
 
 ### Brain Tool Runtime
 
-The Brain service exposes tools through `GET /tools` and `POST /tools/call`. Chat requests sent to `POST /chat` are resolved by the deterministic command router first; a matching command calls the selected tool, runs the tool result through a presenter, and returns the rendered `reply` and `messages`. When no deterministic command matches, the request falls back to the fake planner path so legacy tool commands and non-command chat still receive the current canned responses.
+The Brain service exposes tools through `GET /tools` and `POST /tools/call`. Chat requests sent to `POST /chat` are resolved by the deterministic command router first; a matching command calls the selected tool, runs the tool result through a presenter, and returns the rendered `reply` and `messages`. Command signatures use `BRAIN_COMMAND_PREFIXES`, defaulting to `/` and `.`. When no deterministic command matches, the request falls back to the fake planner path.
 
 The local deterministic echo command can be exercised with:
 
@@ -75,10 +75,14 @@ curl -X POST http://localhost:8000/chat \
   -d '{"text": "/tool-echo runtime"}'
 ```
 
-The deterministic Bilibili module detects BV IDs, `bilibili.com/video/...`, and
-`b23.tv/...` links. The TeamSpeak module handles `查询人数`, `查询人类`,
-`ts状态`, `ts人数`, and `ts帮助`. TeamSpeak querying is optional and uses these
-environment variables when enabled:
+The deterministic Bilibili module triggers in two ways:
+
+- Auto detect: send a BV ID, `bilibili.com/video/...`, or `b23.tv/...` link.
+- Command: `/bili <BV号或链接>`, `.bili <BV号或链接>`, `/bilibili ...`, or `.bv ...`.
+
+The TeamSpeak module handles `查询人数`, `查询人类`, `ts状态`, `ts人数`, and
+`ts帮助`, plus signed commands such as `/ts`, `.ts`, `/ts 帮助`, and `.ts帮助`.
+TeamSpeak querying is optional and uses these environment variables when enabled:
 
 ```text
 TS3_HOST
@@ -91,9 +95,10 @@ TS3_TIMEOUT
 
 Plain text that does not match a deterministic module or fake planner command
 is intentionally silent. Brain runtime settings live in `brain-python/.env`.
-Per-module group policies can be configured with environment variables:
+Per-module group policies and command prefixes can be configured with environment variables:
 
 ```text
+BRAIN_COMMAND_PREFIXES
 BRAIN_GROUP_ALLOWLIST
 BRAIN_GROUP_BLOCKLIST
 BILIBILI_GROUP_ALLOWLIST

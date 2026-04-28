@@ -1,6 +1,8 @@
+import logging
+
 from fastapi.testclient import TestClient
 
-from main import app
+from main import QuietAccessLogFilter, app
 from modules.tsperson import ChannelInfo, ClientInfo, ServerStatus, TSPersonModule, format_duration
 
 
@@ -12,6 +14,14 @@ def test_health() -> None:
 
     assert response.status_code == 200
     assert response.json() == {"status": "ok"}
+
+
+def test_access_log_filter_silences_successful_health_and_chat() -> None:
+    access_filter = QuietAccessLogFilter()
+
+    assert access_filter.filter(_access_record("GET", "/health", 200)) is False
+    assert access_filter.filter(_access_record("POST", "/chat", 200)) is False
+    assert access_filter.filter(_access_record("POST", "/chat", 500)) is True
 
 
 def test_chat_silences_plain_text_without_route() -> None:
@@ -110,6 +120,15 @@ def test_chat_deterministic_command_routes_tool_result_through_presenter() -> No
     assert "metadata" not in body
 
 
+def test_deterministic_command_accepts_dot_prefix() -> None:
+    response = client.post("/chat", json={"text": ".tool-echo runtime"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert body["reply"] == "runtime"
+
+
 def test_chat_falls_back_to_fake_planner_when_router_misses() -> None:
     response = client.post("/chat", json={"text": "/echo runtime"})
 
@@ -123,6 +142,16 @@ def test_chat_falls_back_to_fake_planner_when_router_misses() -> None:
     assert body["metadata"] == {"planner": "fake"}
 
 
+def test_fake_planner_accepts_dot_prefix() -> None:
+    response = client.post("/chat", json={"text": ".echo runtime"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert body["reply"] == "runtime"
+    assert body["tool_calls"] == [{"name": "echo", "arguments": {"text": "runtime"}}]
+
+
 def test_bilibili_link_auto_detects_video() -> None:
     response = client.post("/chat", json={"text": "看看 https://www.bilibili.com/video/BV1xx411c7mD"})
 
@@ -131,6 +160,25 @@ def test_bilibili_link_auto_detects_video() -> None:
     assert body["handled"] is True
     assert "BV1xx411c7mD" in body["reply"]
     assert "https://www.bilibili.com/video/BV1xx411c7mD" in body["reply"]
+
+
+def test_bilibili_command_accepts_dot_prefix() -> None:
+    response = client.post("/chat", json={"text": ".bili BV1xx411c7mD"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert "BV1xx411c7mD" in body["reply"]
+
+
+def test_bilibili_command_without_argument_returns_help() -> None:
+    response = client.post("/chat", json={"text": "/bili"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert ".bili" in body["reply"]
+    assert "b23.tv" in body["reply"]
 
 
 def test_bilibili_short_link_is_detected_without_network_resolution() -> None:
@@ -203,6 +251,15 @@ def test_tsperson_command_routes_without_fake_planner_when_unconfigured(monkeypa
 
 def test_tsperson_help_command() -> None:
     response = client.post("/chat", json={"text": "ts帮助"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert "查询人数" in body["reply"]
+
+
+def test_tsperson_help_command_accepts_dot_prefix() -> None:
+    response = client.post("/chat", json={"text": ".ts帮助"})
 
     assert response.status_code == 200
     body = response.json()
@@ -314,3 +371,15 @@ def test_tsperson_format_duration() -> None:
     assert format_duration(59) == "59秒"
     assert format_duration(3600) == "1小时"
     assert format_duration(90000) == "1天1小时"
+
+
+def _access_record(method: str, path: str, status: int) -> logging.LogRecord:
+    return logging.LogRecord(
+        name="uvicorn.access",
+        level=logging.INFO,
+        pathname="",
+        lineno=0,
+        msg="",
+        args=("127.0.0.1:1", method, path, "1.1", status),
+        exc_info=None,
+    )
