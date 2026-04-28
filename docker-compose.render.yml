@@ -12,6 +12,7 @@ services:
       RENDERER_TIMEOUT: ${RENDERER_TIMEOUT:-3}
 
   renderer-rust:
+    image: ${RENDER_SERVICE_IMAGE:-testbot-renderer-rust:latest}
     build:
       context: ${RENDER_SERVICE_CONTEXT:-../testbot-render-service}
     env_file:
