@@ -14,6 +14,7 @@ TestBot is split into a Go WebSocket gateway, a Python Brain service, database a
 ├── docs/            # Project notes and roadmap
 ├── docker-compose.yml
 ├── docker-compose.modules.yml
+├── docker-compose.render.yml
 └── README.md
 ```
 
@@ -158,12 +159,35 @@ when the module repositories live elsewhere. The overlay publishes module ports
 with `BILIBILI_MODULE_PORT` and `TSPERSON_MODULE_PORT`, defaulting to `8011` and
 `8012`.
 
+Start the core services with the optional Rust renderer service:
+
+```bash
+docker compose -f docker-compose.yml -f docker-compose.render.yml up
+```
+
+The render compose overlay expects the renderer repository to be cloned next to
+this repository by default:
+
+```text
+../testbot-render-service
+```
+
+Use `RENDER_SERVICE_CONTEXT` in the root `.env` when the renderer repository
+lives elsewhere. The overlay publishes the renderer port with
+`RENDER_SERVICE_PORT`, defaulting to `8020`, and stores generated assets in the
+`renderer-assets` volume. The renderer is configured separately from
+`BRAIN_MODULE_SERVICES`; enable Brain-side rendering with `RENDERER_ENABLED`
+and point Brain at `RENDERER_INTERNAL_BASE_URL`. The render overlay passes
+renderer settings into `brain-python` but does not make `brain-python` depend on
+the renderer service.
+
 Optional per-module env files live under `config/modules/`. Copy the examples
 when you need local module-specific settings:
 
 ```bash
 cp config/modules/bilibili.env.example config/modules/bilibili.env
 cp config/modules/tsperson.env.example config/modules/tsperson.env
+cp config/modules/render.env.example config/modules/render.env
 ```
 
 Files matching `config/modules/*.env` are local-only and must not contain
@@ -192,6 +216,12 @@ When NapCat runs outside compose on the host, use:
 ```text
 ws://127.0.0.1:808/ws
 ```
+
+For rendered images, NapCat must be able to reach the URL returned by the
+renderer. When NapCat runs in the same compose project,
+`RENDERER_PUBLIC_BASE_URL=http://renderer-rust:8020` is reachable from NapCat.
+When NapCat runs outside compose, set `RENDERER_PUBLIC_BASE_URL` to a host URL
+that NapCat can fetch, such as `http://127.0.0.1:8020`.
 
 ## Tests
 
