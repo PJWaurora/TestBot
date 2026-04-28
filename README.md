@@ -148,6 +148,19 @@ Start Postgres, Brain, and Gateway:
 docker compose up -d postgres brain-python gateway-go
 ```
 
+Start everything managed by this repository, including module services, the
+Rust renderer, and NapCat:
+
+```bash
+scripts/start-all.sh
+```
+
+Pass compose `up` flags when needed:
+
+```bash
+scripts/start-all.sh --build
+```
+
 Start the core services with the optional Bilibili and TSPerson module services:
 
 ```bash
