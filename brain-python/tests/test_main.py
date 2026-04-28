@@ -208,7 +208,7 @@ def test_remote_module_down_silently_no_reply(monkeypatch: pytest.MonkeyPatch) -
     assert body["metadata"] == {"reason": "no_route"}
 
 
-def test_group_blocklist_prevents_remote_call(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_group_blocklist_skips_remote_call(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("BRAIN_MODULE_SERVICES", "bilibili=http://module-bilibili:8011")
     monkeypatch.setenv("BRAIN_MODULE_BILIBILI_GROUP_BLOCKLIST", "8")
 
@@ -228,13 +228,69 @@ def test_group_blocklist_prevents_remote_call(monkeypatch: pytest.MonkeyPatch) -
 
     assert response.status_code == 200
     body = response.json()
-    assert body["handled"] is True
+    assert body["handled"] is False
     assert body["should_reply"] is False
-    assert body["metadata"] == {
-        "module": "bilibili",
-        "group_policy": "blocked",
-        "group_id": "8",
-    }
+    assert body["metadata"] == {"reason": "no_route"}
+
+
+def test_first_remote_blocked_does_not_prevent_second_remote(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv(
+        "BRAIN_MODULE_SERVICES",
+        "bilibili=http://module-bilibili:8011,tsperson=http://module-tsperson:8012",
+    )
+    monkeypatch.setenv("BRAIN_MODULE_BILIBILI_GROUP_BLOCKLIST", "8")
+    calls = []
+
+    def fake_post(url: str, json: dict[str, Any], timeout: float) -> FakeResponse:
+        calls.append(url)
+        assert url == "http://module-tsperson:8012/handle"
+        return FakeResponse(
+            {
+                "handled": True,
+                "should_reply": True,
+                "reply": "TS online",
+                "messages": [{"type": "text", "text": "TS online"}],
+                "metadata": {"module": "tsperson"},
+            }
+        )
+
+    monkeypatch.setattr("modules.remote.httpx.post", fake_post)
+
+    response = client.post(
+        "/chat",
+        json={
+            "text": "查询人数",
+            "group_id": "8",
+            "message_type": "group",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert body["should_reply"] is True
+    assert body["reply"] == "TS online"
+    assert calls == ["http://module-tsperson:8012/handle"]
+
+
+def test_blocked_remote_does_not_claim_unrelated_text(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BRAIN_MODULE_SERVICES", "bilibili=http://module-bilibili:8011")
+    monkeypatch.setenv("BRAIN_MODULE_BILIBILI_GROUP_BLOCKLIST", "8")
+
+    response = client.post(
+        "/chat",
+        json={
+            "text": "hello",
+            "group_id": "8",
+            "message_type": "group",
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is False
+    assert body["should_reply"] is False
+    assert body["metadata"] == {"reason": "no_route"}
 
 
 def test_tools_aggregates_remote_tools(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -333,6 +389,28 @@ def test_remote_tool_failure_returns_tool_result(monkeypatch: pytest.MonkeyPatch
         "tool_name": "tsperson.get_status",
         "ok": False,
         "error": "module_unavailable",
+    }
+
+
+def test_tools_call_does_not_route_undiscovered_prefix_tool(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BRAIN_MODULE_SERVICES", "tsperson=http://module-tsperson:8012")
+
+    def fake_get(url: str, timeout: float) -> FakeResponse:
+        return FakeResponse([])
+
+    def fake_post(url: str, json: dict[str, Any], timeout: float) -> FakeResponse:
+        raise AssertionError("undiscovered remote tool should not be called")
+
+    monkeypatch.setattr("modules.remote.httpx.get", fake_get)
+    monkeypatch.setattr("modules.remote.httpx.post", fake_post)
+
+    response = client.post("/tools/call", json={"name": "tsperson.hidden", "arguments": {}})
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "tool_name": "tsperson.hidden",
+        "ok": False,
+        "error": "unknown tool: tsperson.hidden",
     }
 
 
