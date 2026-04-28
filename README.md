@@ -67,7 +67,9 @@ curl http://localhost:8000/health
 
 ### Brain Module And Tool Runtime
 
-The Brain service exposes tools through `GET /tools` and `POST /tools/call`. Chat requests sent to `POST /chat` are resolved by the deterministic command router first. The core runtime keeps only the local fake echo module and delegates other deterministic modules to HTTP services configured with `BRAIN_MODULE_SERVICES`.
+The Brain service exposes tools through `GET /tools` and `POST /tools/call`. Chat requests sent to `POST /chat` are resolved by the deterministic command router first. By default, Brain core loads only the local fake echo module; `GET /tools` returns only `echo` unless remote module services are configured.
+
+Bilibili and TSPerson are external HTTP module services, not default in-core Brain modules. Enable them through `docker-compose.modules.yml` and `BRAIN_MODULE_SERVICES`.
 
 `BRAIN_MODULE_SERVICES` is a comma-separated list of `name=url` entries:
 
