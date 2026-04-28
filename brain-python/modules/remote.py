@@ -66,7 +66,7 @@ class RemoteModuleService:
         try:
             response = httpx.post(
                 f"{self.base_url}/tools/call",
-                json=_model_dump(request),
+                json=_model_dump(request, exclude_none=True),
                 timeout=self.timeout,
             )
         except httpx.HTTPError as exc:
@@ -126,10 +126,10 @@ def _module_timeout() -> float:
     return timeout if timeout > 0 else DEFAULT_MODULE_TIMEOUT
 
 
-def _model_dump(model: Any) -> dict[str, Any]:
+def _model_dump(model: Any, *, exclude_none: bool = False) -> dict[str, Any]:
     if hasattr(model, "model_dump"):
-        return model.model_dump()
-    return model.dict()
+        return model.model_dump(exclude_none=exclude_none)
+    return model.dict(exclude_none=exclude_none)
 
 
 def _model_validate(model_type: Any, value: Any) -> Any:

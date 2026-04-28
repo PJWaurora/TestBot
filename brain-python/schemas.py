@@ -85,6 +85,9 @@ class ChatResponse(BrainResponse):
 class ToolCallRequest(BaseModel):
     name: str
     arguments: dict[str, Any] = Field(default_factory=dict)
+    message_type: str | None = None
+    group_id: str | int | None = None
+    user_id: str | int | None = None
 
 
 class OutboxEnqueueRequest(BaseModel):
