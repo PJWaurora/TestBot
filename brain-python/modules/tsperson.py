@@ -1,3 +1,11 @@
+"""Legacy in-core TSPerson module.
+
+This module is not loaded by the default Brain registry. It is retained only
+as temporary compatibility/reference code while official TSPerson behavior
+lives in the external HTTP module service configured through
+``BRAIN_MODULE_SERVICES`` and ``docker-compose.modules.yml``.
+"""
+
 from __future__ import annotations
 
 import os

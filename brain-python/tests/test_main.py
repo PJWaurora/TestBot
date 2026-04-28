@@ -106,13 +106,31 @@ def test_chat_uses_latest_normalized_message() -> None:
     assert body["metadata"] == {"reason": "no_route"}
 
 
-def test_tools_are_listed() -> None:
+def test_default_tools_exposes_only_echo() -> None:
     response = client.get("/tools")
 
     assert response.status_code == 200
     tools = response.json()
-    assert tools[0]["name"] == "echo"
+    assert [tool["name"] for tool in tools] == ["echo"]
     assert "input_schema" in tools[0]
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "https://www.bilibili.com/video/BV1xx411c7mD",
+        "查询人数",
+    ],
+)
+def test_unconfigured_external_module_triggers_stay_silent(text: str) -> None:
+    response = client.post("/chat", json={"text": text})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is False
+    assert body["should_reply"] is False
+    assert body["metadata"] == {"reason": "no_route"}
+    assert "messages" not in body
 
 
 def test_tool_call_echoes_arguments() -> None:

@@ -1,3 +1,11 @@
+"""Legacy in-core Bilibili module.
+
+This module is not loaded by the default Brain registry. It is retained only
+as temporary compatibility/reference code while official Bilibili behavior
+lives in the external HTTP module service configured through
+``BRAIN_MODULE_SERVICES`` and ``docker-compose.modules.yml``.
+"""
+
 import os
 import re
 from typing import Callable
