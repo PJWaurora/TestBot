@@ -59,5 +59,6 @@ jobs:
         env:
           POSTGRES_PASSWORD: ci-only-password
           DATABASE_URL: postgres://testbot:ci-only-password@postgres:5432/testbot?sslmode=disable
+          OUTBOX_TOKEN: ci-only-outbox-token
           NAPCAT_IMAGE: mlikiowa/napcat-docker:latest
         run: docker compose config
