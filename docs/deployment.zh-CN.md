@@ -216,7 +216,7 @@ Weather 模块支持：
 - `<城市>天气`
 - `/weather <城市>`
 - `.weather <城市>`
-- `weather.get_forecast(city)` tool call
+- `weather.get_live(city)` 或 `weather.get_live(adcode)` tool call
 
 可选 `config/modules/weather.env`：
 
@@ -228,6 +228,7 @@ WEATHER_AMAP_KEY=
 WEATHER_AMAP_BASE_URL=https://restapi.amap.com/v3/weather/weatherInfo
 WEATHER_TIMEOUT=5
 WEATHER_TRUST_ENV_PROXY=false
+# WEATHER_CITYCODE_PATH=/app/citycode.xlsx
 ```
 
 `WEATHER_AMAP_KEY` 是调用高德天气接口所需的 key。第一版 Weather 服务只返回文字，
@@ -421,9 +422,9 @@ BRAIN_MODULE_SERVICES=bilibili=http://127.0.0.1:8011,tsperson=http://127.0.0.1:8
 ```bash
 cd gateway-go && go test ./...
 cd brain-python && .venv/bin/python -m pytest
-docker compose config
-docker compose -f docker-compose.yml -f docker-compose.modules.yml config
-docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml config
+docker compose config --quiet
+docker compose -f docker-compose.yml -f docker-compose.modules.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml config --quiet
 ```
 
 Bilibili 模块：

@@ -237,7 +237,7 @@ The Weather service handles:
 - `<城市>天气`
 - `/weather <城市>`
 - `.weather <城市>`
-- weather tool calls such as `weather.get_forecast(city)`
+- weather tool calls such as `weather.get_live(city)` or `weather.get_live(adcode)`
 
 Optional `config/modules/weather.env`:
 
@@ -249,6 +249,7 @@ WEATHER_AMAP_KEY=
 WEATHER_AMAP_BASE_URL=https://restapi.amap.com/v3/weather/weatherInfo
 WEATHER_TIMEOUT=5
 WEATHER_TRUST_ENV_PROXY=false
+# WEATHER_CITYCODE_PATH=/app/citycode.xlsx
 ```
 
 `WEATHER_AMAP_KEY` is required for live Amap weather queries. The first Weather
@@ -452,10 +453,10 @@ Core:
 ```bash
 cd gateway-go && go test ./...
 cd brain-python && .venv/bin/python -m pytest
-docker compose config
-docker compose -f docker-compose.yml -f docker-compose.modules.yml config
-docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml config
-docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.media.yml config
+docker compose config --quiet
+docker compose -f docker-compose.yml -f docker-compose.modules.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.media.yml config --quiet
 ```
 
 Bilibili module:
