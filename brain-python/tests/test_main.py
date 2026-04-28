@@ -31,6 +31,10 @@ def clear_module_runtime_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "BRAIN_MODULE_TSPERSON_GROUP_BLOCKLIST",
         "TSPERSON_GROUP_ALLOWLIST",
         "TSPERSON_GROUP_BLOCKLIST",
+        "BRAIN_MODULE_WEATHER_GROUP_ALLOWLIST",
+        "BRAIN_MODULE_WEATHER_GROUP_BLOCKLIST",
+        "WEATHER_GROUP_ALLOWLIST",
+        "WEATHER_GROUP_BLOCKLIST",
         "OUTBOX_TOKEN",
     ):
         monkeypatch.delenv(key, raising=False)
@@ -452,6 +456,91 @@ def test_tools_call_forwards_to_remote_tool(monkeypatch: pytest.MonkeyPatch) -> 
             "timeout": 5.0,
         }
     ]
+
+
+def test_tools_call_forwards_top_level_context_to_remote_tool(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BRAIN_MODULE_SERVICES", "weather=http://module-weather:8013")
+    calls = []
+
+    def fake_get(url: str, timeout: float) -> FakeResponse:
+        return FakeResponse(
+            [
+                {
+                    "name": "weather.get_live",
+                    "description": "Get weather.",
+                    "input_schema": {"type": "object", "properties": {}},
+                }
+            ]
+        )
+
+    def fake_post(url: str, json: dict[str, Any], timeout: float) -> FakeResponse:
+        calls.append(json)
+        return FakeResponse({"tool_name": "weather.get_live", "ok": True, "data": {"weather": "ok"}})
+
+    monkeypatch.setattr("modules.remote.httpx.get", fake_get)
+    monkeypatch.setattr("modules.remote.httpx.post", fake_post)
+
+    response = client.post(
+        "/tools/call",
+        json={
+            "name": "weather.get_live",
+            "arguments": {"city": "北京"},
+            "message_type": "group",
+            "group_id": "613689332",
+            "user_id": "42",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["ok"] is True
+    assert calls == [
+        {
+            "name": "weather.get_live",
+            "arguments": {"city": "北京"},
+            "message_type": "group",
+            "group_id": "613689332",
+            "user_id": "42",
+        }
+    ]
+
+
+def test_tools_call_applies_brain_group_policy_before_remote_tool(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BRAIN_MODULE_SERVICES", "weather=http://module-weather:8013")
+    monkeypatch.setenv("BRAIN_MODULE_WEATHER_GROUP_BLOCKLIST", "613689332")
+
+    def fake_get(url: str, timeout: float) -> FakeResponse:
+        return FakeResponse(
+            [
+                {
+                    "name": "weather.get_live",
+                    "description": "Get weather.",
+                    "input_schema": {"type": "object", "properties": {}},
+                }
+            ]
+        )
+
+    def fake_post(url: str, json: dict[str, Any], timeout: float) -> FakeResponse:
+        raise AssertionError("blocked remote tool should not be called")
+
+    monkeypatch.setattr("modules.remote.httpx.get", fake_get)
+    monkeypatch.setattr("modules.remote.httpx.post", fake_post)
+
+    response = client.post(
+        "/tools/call",
+        json={
+            "name": "weather.get_live",
+            "arguments": {"city": "北京"},
+            "message_type": "group",
+            "group_id": "613689332",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "tool_name": "weather.get_live",
+        "ok": False,
+        "error": "group_policy_denied",
+    }
 
 
 def test_remote_tool_failure_returns_tool_result(monkeypatch: pytest.MonkeyPatch) -> None:

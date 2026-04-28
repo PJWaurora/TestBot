@@ -20,7 +20,7 @@ def build_chat_response(request: ChatRequest) -> BrainResponse:
 
     tool_request = _plan_tool_call(text) if text else None
     if tool_request is not None:
-        result = call_tool(tool_request)
+        result = call_tool(tool_request, context)
         reply = str(result.data.get("text", "")) if result.ok else ""
         return BrainResponse(
             handled=True,
