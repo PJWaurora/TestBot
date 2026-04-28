@@ -177,9 +177,11 @@ lives elsewhere. The overlay publishes the renderer port with
 `RENDER_SERVICE_PORT`, defaulting to `8020`, and stores generated assets in the
 `renderer-assets` volume. The renderer is configured separately from
 `BRAIN_MODULE_SERVICES`; enable module-side rendering with `RENDERER_ENABLED`
-and point modules at `RENDERER_INTERNAL_BASE_URL`. The render overlay passes
-renderer settings into `module-bilibili` and `module-tsperson`, but does not
-make Brain depend on the renderer service.
+and point modules at `RENDERER_INTERNAL_BASE_URL`. Set
+`RENDERER_PUBLIC_BASE_URL` in the root `.env`; this is the URL embedded in image
+messages and must be reachable by NapCat. The render overlay passes renderer
+settings into `module-bilibili` and `module-tsperson`, but does not make Brain
+depend on the renderer service.
 
 Optional per-module env files live under `config/modules/`. Copy the examples
 when you need local module-specific settings:
@@ -220,8 +222,8 @@ ws://127.0.0.1:808/ws
 For rendered images, NapCat must be able to reach the URL returned by the
 renderer. When NapCat runs in the same compose project,
 `RENDERER_PUBLIC_BASE_URL=http://renderer-rust:8020` is reachable from NapCat.
-When NapCat runs outside compose, set `RENDERER_PUBLIC_BASE_URL` to a host URL
-that NapCat can fetch, such as `http://127.0.0.1:8020`.
+When NapCat runs outside compose, set `RENDERER_PUBLIC_BASE_URL` in the root
+`.env` to a host URL that NapCat can fetch, such as `http://127.0.0.1:8020`.
 
 ## Tests
 
