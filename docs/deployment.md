@@ -144,7 +144,7 @@ Root `.env`:
 
 ```env
 BRAIN_MODULE_SERVICES=bilibili=http://module-bilibili:8011,tsperson=http://module-tsperson:8012,weather=http://module-weather:8013
-BRAIN_MODULE_TIMEOUT=5
+BRAIN_MODULE_TIMEOUT=20
 BILIBILI_MODULE_PORT=8011
 TSPERSON_MODULE_PORT=8012
 WEATHER_MODULE_PORT=8013

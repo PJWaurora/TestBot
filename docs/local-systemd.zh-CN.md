@@ -65,7 +65,7 @@ scripts/logs.sh -f brain
 scripts/logs.sh -f bilibili
 scripts/logs.sh -f ts
 scripts/logs.sh -f weather
-scripts/logs.sh -f renderer
+scripts/logs.sh -f render
 scripts/logs.sh -f media
 scripts/logs.sh -f napcat
 ```

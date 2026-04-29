@@ -12,9 +12,7 @@ Services:
   brain        systemd: testbot-brain
   bilibili     systemd: testbot-module-bilibili
   ts           systemd: testbot-module-tsperson
-  tsperson     systemd: testbot-module-tsperson
   weather      systemd: testbot-module-weather
-  renderer     systemd: testbot-renderer
   render       systemd: testbot-renderer
   media        systemd: testbot-media
   compose      systemd: testbot-compose
@@ -31,6 +29,7 @@ Options:
 
 Examples:
   scripts/logs.sh gateway
+  scripts/logs.sh all
   scripts/logs.sh -f bilibili
   scripts/logs.sh --since "30 minutes ago" media
   scripts/logs.sh -n 80 napcat
@@ -62,6 +61,100 @@ docker_container_for() {
 
 list_services() {
   usage | sed -n '/^Services:/,/^Options:/p' | sed '$d'
+}
+
+label_color() {
+  local label="$1"
+  if [[ ! -t 1 || -n "${NO_COLOR:-}" ]]; then
+    printf ''
+    return
+  fi
+
+  case "$label" in
+    gateway) printf '\033[36m' ;;
+    brain) printf '\033[35m' ;;
+    bilibili) printf '\033[34m' ;;
+    ts|tsperson) printf '\033[33m' ;;
+    weather) printf '\033[32m' ;;
+    render|renderer) printf '\033[96m' ;;
+    media) printf '\033[31m' ;;
+    napcat) printf '\033[92m' ;;
+    postgres) printf '\033[95m' ;;
+    haruki) printf '\033[93m' ;;
+    *) printf '\033[37m' ;;
+  esac
+}
+
+prefix_stream() {
+  local label="$1"
+  local color reset
+  color="$(label_color "$label")"
+  if [[ -n "$color" ]]; then
+    reset=$'\033[0m'
+  else
+    reset=''
+  fi
+
+  awk -v label="$label" -v color="$color" -v reset="$reset" '
+    {
+      printf "%s%-10s%s | %s\n", color, label, reset, $0
+      fflush()
+    }
+  '
+}
+
+docker_since_value() {
+  local value="$1"
+  if [[ -z "$value" ]]; then
+    return 0
+  fi
+  date -d "$value" --iso-8601=seconds 2>/dev/null || printf '%s\n' "$value"
+}
+
+journalctl_args() {
+  local unit="$1"
+  local args=(--no-pager -o cat -u "$unit" -n "$lines")
+  [[ -n "$since" ]] && args+=(--since "$since")
+  $follow && args+=(-f)
+  printf '%s\0' "${args[@]}"
+}
+
+run_systemd_logs() {
+  local label="$1"
+  local unit="$2"
+  local args=()
+  while IFS= read -r -d '' arg; do
+    args+=("$arg")
+  done < <(journalctl_args "$unit")
+  journalctl "${args[@]}" | prefix_stream "$label"
+}
+
+run_docker_logs() {
+  local label="$1"
+  local container="$2"
+  local args=(logs --tail "$lines")
+  [[ -n "$since" ]] && args+=(--since "$(docker_since_value "$since")")
+  $follow && args+=(-f)
+  args+=("$container")
+  docker "${args[@]}" 2>&1 | prefix_stream "$label"
+}
+
+run_all_logs() {
+  local labels=(gateway brain bilibili ts weather render media napcat)
+  local pids=()
+
+  for label in "${labels[@]}"; do
+    if unit="$(systemd_unit_for "$label")"; then
+      run_systemd_logs "$label" "$unit" &
+      pids+=("$!")
+    elif container="$(docker_container_for "$label")"; then
+      run_docker_logs "$label" "$container" &
+      pids+=("$!")
+    fi
+  done
+
+  trap 'kill "${pids[@]}" >/dev/null 2>&1 || true' INT TERM EXIT
+  wait
 }
 
 follow=false
@@ -121,32 +214,18 @@ if [[ "$service" == "list" ]]; then
 fi
 
 if [[ "$service" == "all" ]]; then
-  args=(--no-pager -n "$lines")
-  [[ -n "$since" ]] && args+=(--since "$since")
-  $follow && args+=(-f)
-  exec journalctl "${args[@]}" \
-    -u testbot-gateway.service \
-    -u testbot-brain.service \
-    -u testbot-module-bilibili.service \
-    -u testbot-module-tsperson.service \
-    -u testbot-module-weather.service \
-    -u testbot-renderer.service \
-    -u testbot-media.service
+  run_all_logs
+  exit 0
 fi
 
 if unit="$(systemd_unit_for "$service")"; then
-  args=(--no-pager -u "$unit" -n "$lines")
-  [[ -n "$since" ]] && args+=(--since "$since")
-  $follow && args+=(-f)
-  exec journalctl "${args[@]}"
+  run_systemd_logs "$service" "$unit"
+  exit 0
 fi
 
 if container="$(docker_container_for "$service")"; then
-  args=(logs --tail "$lines")
-  [[ -n "$since" ]] && args+=(--since "$since")
-  $follow && args+=(-f)
-  args+=("$container")
-  exec docker "${args[@]}"
+  run_docker_logs "$service" "$container"
+  exit 0
 fi
 
 echo "Unknown service: $service" >&2

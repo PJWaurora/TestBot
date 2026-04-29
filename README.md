@@ -79,7 +79,7 @@ Bilibili, TSPerson, and Weather are external HTTP module services, not default i
 ```text
 BRAIN_MODULE_SERVICE_DEFAULTS=bilibili=http://module-bilibili:8011,tsperson=http://module-tsperson:8012,weather=http://module-weather:8013
 BRAIN_MODULE_SERVICES=
-BRAIN_MODULE_TIMEOUT=5
+BRAIN_MODULE_TIMEOUT=20
 ```
 
 Brain merges explicit `BRAIN_MODULE_SERVICES` entries with the compose default

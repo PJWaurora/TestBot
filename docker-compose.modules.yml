@@ -3,7 +3,7 @@ services:
     environment:
       BRAIN_MODULE_SERVICE_DEFAULTS: ${BRAIN_MODULE_SERVICE_DEFAULTS:-bilibili=http://module-bilibili:8011,tsperson=http://module-tsperson:8012,weather=http://module-weather:8013}
       BRAIN_MODULE_SERVICES: ${BRAIN_MODULE_SERVICES:-}
-      BRAIN_MODULE_TIMEOUT: ${BRAIN_MODULE_TIMEOUT:-5}
+      BRAIN_MODULE_TIMEOUT: ${BRAIN_MODULE_TIMEOUT:-20}
     depends_on:
       module-bilibili:
         condition: service_started

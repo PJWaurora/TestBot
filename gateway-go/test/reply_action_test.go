@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"gateway/client/napcat"
 	"gateway/handler"
@@ -202,6 +203,38 @@ func TestDispatchBrainTreatsUnhandledResponseAsHandled(t *testing.T) {
 	}))
 	defer server.Close()
 	t.Setenv("BRAIN_BASE_URL", server.URL)
+
+	actions, handled := handler.DispatchBrain(normalizer.IncomingMessage{
+		PostType:    "message",
+		MessageType: "group",
+		UserID:      9,
+		GroupID:     8,
+		Text:        "hello",
+		TextSegments: []string{
+			"hello",
+		},
+	})
+	if !handled {
+		t.Fatal("handled = false, want true")
+	}
+	if len(actions) != 0 {
+		t.Fatalf("action count = %d, want 0", len(actions))
+	}
+}
+
+func TestDispatchBrainUsesConfigurableTimeout(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		time.Sleep(50 * time.Millisecond)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"handled": true,
+			"should_reply": true,
+			"messages": [{"type": "text", "text": "too late"}]
+		}`))
+	}))
+	defer server.Close()
+	t.Setenv("BRAIN_BASE_URL", server.URL)
+	t.Setenv("GATEWAY_BRAIN_TIMEOUT_SECONDS", "0.01")
 
 	actions, handled := handler.DispatchBrain(normalizer.IncomingMessage{
 		PostType:    "message",

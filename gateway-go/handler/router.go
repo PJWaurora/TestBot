@@ -17,7 +17,7 @@ import (
 	"gateway/handler/normalizer"
 )
 
-const brainRequestTimeout = 5 * time.Second
+const defaultBrainRequestTimeout = 20 * time.Second
 
 type BaseEvent = models.BaseEvent
 type BaseVideoEvent = models.BaseVideoEvent
@@ -112,13 +112,14 @@ func DispatchBrain(message normalizer.IncomingMessage) ([]napcat.Action, bool) {
 		return nil, false
 	}
 
-	client, err := brain.NewClient(baseURL, brain.WithTimeout(brainRequestTimeout))
+	timeout := brainRequestTimeout()
+	client, err := brain.NewClient(baseURL, brain.WithTimeout(timeout))
 	if err != nil {
 		log.Printf("Brain client 配置错误，跳过回复: %v", err)
 		return nil, true
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), brainRequestTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout)
 	defer cancel()
 
 	response, err := client.PostMessage(ctx, message)
@@ -149,6 +150,20 @@ func DispatchBrain(message normalizer.IncomingMessage) ([]napcat.Action, bool) {
 		len(response.Reply),
 	)
 	return actions, true
+}
+
+func brainRequestTimeout() time.Duration {
+	raw := strings.TrimSpace(os.Getenv("GATEWAY_BRAIN_TIMEOUT_SECONDS"))
+	if raw == "" {
+		return defaultBrainRequestTimeout
+	}
+
+	seconds, err := strconv.ParseFloat(raw, 64)
+	if err != nil || seconds <= 0 {
+		log.Printf("GATEWAY_BRAIN_TIMEOUT_SECONDS=%q 无效，使用默认 %s", raw, defaultBrainRequestTimeout)
+		return defaultBrainRequestTimeout
+	}
+	return time.Duration(seconds * float64(time.Second))
 }
 
 func BrainResponseActions(message normalizer.IncomingMessage, response *brain.Response) []napcat.Action {
