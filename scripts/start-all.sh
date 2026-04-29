@@ -19,9 +19,10 @@ compose_files=(
   -f docker-compose.yml
   -f docker-compose.modules.yml
   -f docker-compose.render.yml
+  -f docker-compose.media.yml
 )
 
-echo "Starting TestBot core, modules, renderer, and NapCat..."
+echo "Starting TestBot core, modules, renderer, media, and NapCat..."
 docker compose "${compose_files[@]}" --profile napcat up -d "$@"
 
 echo
