@@ -196,6 +196,14 @@ equivalent to `scripts/start-local-systemd.sh`:
 scripts/start-all.sh
 ```
 
+Use the unified log helper for local systemd and Docker services:
+
+```bash
+scripts/logs.sh list
+scripts/logs.sh -f gateway
+scripts/logs.sh -n 80 napcat
+```
+
 For full Docker development with every optional service, use profiles directly:
 
 ```bash

@@ -60,13 +60,20 @@ systemctl status testbot-gateway testbot-brain testbot-module-bilibili testbot-m
 看日志：
 
 ```bash
-journalctl -u testbot-gateway -f
-journalctl -u testbot-brain -f
-journalctl -u testbot-module-bilibili -f
-journalctl -u testbot-module-tsperson -f
-journalctl -u testbot-module-weather -f
-journalctl -u testbot-renderer -f
-journalctl -u testbot-media -f
+scripts/logs.sh gateway
+scripts/logs.sh -f brain
+scripts/logs.sh -f bilibili
+scripts/logs.sh -f ts
+scripts/logs.sh -f weather
+scripts/logs.sh -f renderer
+scripts/logs.sh -f media
+scripts/logs.sh -f napcat
+```
+
+查看可用服务名：
+
+```bash
+scripts/logs.sh list
 ```
 
 重启某个模块：
