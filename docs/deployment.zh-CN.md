@@ -294,9 +294,14 @@ PIXIV_RESTRICTED_TAGS=R-18,R-18G
 PIXIV_CACHE_TTL_MINUTES=60
 PIXIV_IMAGE_CACHE_DIR=/tmp/testbot-pixiv-assets
 PIXIV_IMAGE_CACHE_TTL_SECONDS=3600
-PIXIV_ASSET_BASE_URL=http://127.0.0.1:8014
+PIXIV_ASSET_BASE_URL=http://host.docker.internal:8014
 PIXIV_COMMAND_PREFIXES=/,.
 ```
+
+如果 NapCat 仍然跑在 Docker 里，`PIXIV_ASSET_BASE_URL` 必须是容器能拉到的
+地址。对于当前文档里的本机/混合部署，`http://host.docker.internal:8014`
+是最稳的默认值；如果以后 Pixiv 模块也放进同一个 compose 网络，再改成
+`http://module-pixiv:8014`。
 
 ## Media 服务
 

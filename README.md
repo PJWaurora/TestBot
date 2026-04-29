@@ -229,6 +229,7 @@ docker compose \
   -f docker-compose.media.yml \
   --profile docker-app \
   --profile docker-modules \
+  --profile docker-pixiv \
   --profile docker-render \
   --profile docker-media \
   --profile napcat \
