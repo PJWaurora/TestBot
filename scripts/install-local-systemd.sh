@@ -76,13 +76,19 @@ EOF
 install_binaries() {
   (cd "$ROOT_DIR/gateway-go" && go build -o /usr/local/bin/testbot-gateway .)
 
+  local renderer_release="/root/testbot-render-service/target/release/testbot-render-service"
   local renderer_debug="/root/testbot-render-service/target/debug/testbot-render-service"
-  if [[ ! -x "$renderer_debug" ]]; then
-    echo "Missing renderer binary: $renderer_debug" >&2
-    echo "Build it once with the Rust 1.90 toolchain before installing local services." >&2
+  local renderer_binary=""
+  if [[ -x "$renderer_release" ]]; then
+    renderer_binary="$renderer_release"
+  elif [[ -x "$renderer_debug" ]]; then
+    renderer_binary="$renderer_debug"
+  else
+    echo "Missing renderer binary: $renderer_release or $renderer_debug" >&2
+    echo "Build it once with a recent Rust toolchain before installing local services." >&2
     exit 1
   fi
-  install -m 0755 "$renderer_debug" /usr/local/bin/testbot-render-service
+  install -m 0755 "$renderer_binary" /usr/local/bin/testbot-render-service
 }
 
 write_unit() {
