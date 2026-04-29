@@ -70,16 +70,24 @@ curl http://localhost:8000/health
 
 The Brain service exposes tools through `GET /tools` and `POST /tools/call`. Chat requests sent to `POST /chat` are resolved by the deterministic command router first. By default, Brain core loads only the local fake echo module; `GET /tools` returns only `echo` unless remote module services are configured.
 
-Bilibili, TSPerson, and Weather are external HTTP module services, not default in-core Brain modules. Enable them through `docker-compose.modules.yml` and `BRAIN_MODULE_SERVICES`.
+Bilibili, TSPerson, and Weather are external HTTP module services, not default in-core Brain modules. Enable them through `docker-compose.modules.yml`.
 
-`BRAIN_MODULE_SERVICES` is a comma-separated list of `name=url` entries:
+`BRAIN_MODULE_SERVICE_DEFAULTS` is the compose-managed default module list.
+`BRAIN_MODULE_SERVICES` is a comma-separated list of extra or overriding
+`name=url` entries:
 
 ```text
-BRAIN_MODULE_SERVICES=bilibili=http://module-bilibili:8011,tsperson=http://module-tsperson:8012,weather=http://module-weather:8013
+BRAIN_MODULE_SERVICE_DEFAULTS=bilibili=http://module-bilibili:8011,tsperson=http://module-tsperson:8012,weather=http://module-weather:8013
+BRAIN_MODULE_SERVICES=
 BRAIN_MODULE_TIMEOUT=5
 ```
 
-For each configured module, Brain applies the core group allow/block policy before calling `POST /handle` on the remote service with the existing `ChatRequest` JSON shape. Remote service failures, timeouts, non-2xx responses, and invalid JSON are logged and treated as no reply with no retries.
+Brain merges explicit `BRAIN_MODULE_SERVICES` entries with the compose default
+list, so an older local `.env` will not accidentally hide newly added modules
+such as Weather. For each configured module, Brain applies the core group
+allow/block policy before calling `POST /handle` on the remote service with the
+existing `ChatRequest` JSON shape. Remote service failures, timeouts, non-2xx
+responses, and invalid JSON are logged and treated as no reply with no retries.
 
 `GET /tools` returns the local fake echo tool plus tools discovered from each remote module service's `GET /tools`. `POST /tools/call` forwards remote tool calls to the owning service by discovered tool name; remote call failures return `ToolResult(ok=false)`.
 

@@ -12,6 +12,11 @@ from schemas import BrainResponse, ChatRequest, ToolCallRequest, ToolDefinition,
 logger = logging.getLogger(__name__)
 
 DEFAULT_MODULE_TIMEOUT = 5.0
+DEFAULT_MODULE_SERVICE_DEFAULTS = (
+    "bilibili=http://module-bilibili:8011,"
+    "tsperson=http://module-tsperson:8012,"
+    "weather=http://module-weather:8013"
+)
 
 
 @dataclass(frozen=True)
@@ -91,25 +96,45 @@ class RemoteModuleService:
 
 def module_services_from_env() -> list[RemoteModuleService]:
     timeout = _module_timeout()
-    services = []
-    for entry in _split_services(os.getenv("BRAIN_MODULE_SERVICES", "")):
+    services = _service_map(
+        os.getenv("BRAIN_MODULE_SERVICE_DEFAULTS", DEFAULT_MODULE_SERVICE_DEFAULTS),
+        "BRAIN_MODULE_SERVICE_DEFAULTS",
+        timeout,
+    )
+    services.update(
+        _service_map(
+            os.getenv("BRAIN_MODULE_SERVICES", ""),
+            "BRAIN_MODULE_SERVICES",
+            timeout,
+        )
+    )
+    return list(services.values())
+
+
+def _split_services(value: str) -> list[str]:
+    return [part.strip() for part in value.split(",") if part.strip()]
+
+
+def _service_map(
+    value: str,
+    env_name: str,
+    timeout: float,
+) -> dict[str, RemoteModuleService]:
+    services: dict[str, RemoteModuleService] = {}
+    for entry in _split_services(value):
         name, separator, url = entry.partition("=")
         if not separator:
-            logger.warning("ignoring malformed BRAIN_MODULE_SERVICES entry: %s", entry)
+            logger.warning("ignoring malformed %s entry: %s", env_name, entry)
             continue
 
         normalized_name = name.strip()
         normalized_url = url.strip().rstrip("/")
         if not normalized_name or not normalized_url:
-            logger.warning("ignoring incomplete BRAIN_MODULE_SERVICES entry: %s", entry)
+            logger.warning("ignoring incomplete %s entry: %s", env_name, entry)
             continue
 
-        services.append(RemoteModuleService(normalized_name, normalized_url, timeout))
+        services[normalized_name] = RemoteModuleService(normalized_name, normalized_url, timeout)
     return services
-
-
-def _split_services(value: str) -> list[str]:
-    return [part.strip() for part in value.split(",") if part.strip()]
 
 
 def _module_timeout() -> float:

@@ -18,6 +18,7 @@ client = TestClient(app)
 
 @pytest.fixture(autouse=True)
 def clear_module_runtime_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BRAIN_MODULE_SERVICE_DEFAULTS", "")
     for key in (
         "BRAIN_MODULE_SERVICES",
         "BRAIN_MODULE_TIMEOUT",
@@ -139,6 +140,58 @@ def test_unconfigured_external_module_triggers_stay_silent(text: str) -> None:
     assert body["should_reply"] is False
     assert body["metadata"] == {"reason": "no_route"}
     assert "messages" not in body
+
+
+def test_default_module_services_are_merged_with_explicit_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls = []
+    monkeypatch.setenv("BRAIN_MODULE_SERVICE_DEFAULTS", "weather=http://module-weather:8013")
+    monkeypatch.setenv("BRAIN_MODULE_SERVICES", "bilibili=http://module-bilibili:8011")
+
+    def fake_post(url: str, json: dict[str, Any], timeout: float) -> FakeResponse:
+        calls.append({"url": url, "json": json, "timeout": timeout})
+        if url == "http://module-weather:8013/handle":
+            return FakeResponse(
+                {
+                    "handled": True,
+                    "should_reply": True,
+                    "reply": "weather-ok",
+                    "messages": [{"type": "text", "text": "weather-ok"}],
+                    "metadata": {"module": "weather"},
+                }
+            )
+        raise AssertionError(f"unexpected remote call: {url}")
+
+    monkeypatch.setattr("modules.remote.httpx.post", fake_post)
+
+    response = client.post("/chat", json={"text": "天气 北京"})
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert body["reply"] == "weather-ok"
+    assert calls == [
+        {
+            "url": "http://module-weather:8013/handle",
+            "json": {
+                "self_id": None,
+                "post_type": None,
+                "primary_type": None,
+                "text": "天气 北京",
+                "content": "",
+                "message": None,
+                "messages": [],
+                "text_segments": [],
+                "json_messages": [],
+                "user_id": None,
+                "group_id": None,
+                "conversation_id": None,
+                "message_id": None,
+                "message_type": None,
+                "metadata": {},
+            },
+            "timeout": 5.0,
+        }
+    ]
 
 
 def test_tool_call_echoes_arguments() -> None:
