@@ -31,6 +31,7 @@ services:
         "0.0.0.0",
         "--port",
         "8011",
+        "--no-access-log",
       ]
 
   module-tsperson:
@@ -52,6 +53,7 @@ services:
         "0.0.0.0",
         "--port",
         "8012",
+        "--no-access-log",
       ]
 
   module-weather:
@@ -73,4 +75,5 @@ services:
         "0.0.0.0",
         "--port",
         "8013",
+        "--no-access-log",
       ]

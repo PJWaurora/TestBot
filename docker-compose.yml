@@ -81,7 +81,17 @@ services:
       - ./database:/database:ro
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    command: ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+    command:
+      [
+        "uvicorn",
+        "main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--reload",
+        "--no-access-log",
+      ]
     depends_on:
       postgres:
         condition: service_healthy

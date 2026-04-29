@@ -70,6 +70,8 @@ scripts/logs.sh -f media
 scripts/logs.sh -f napcat
 ```
 
+本地 systemd 部署会用 `uvicorn --no-access-log` 启动 Brain、模块和 media，避免 `/health`、`/handle`、`/chat` 这类 HTTP access log 刷屏；应用自身的 warning/error 仍会输出。
+
 查看可用服务名：
 
 ```bash

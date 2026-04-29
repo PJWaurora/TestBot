@@ -26,6 +26,16 @@ services:
       - "${MEDIA_SERVICE_PORT:-8030}:8030"
     volumes:
       - media-data:/data
+    command:
+      [
+        "uvicorn",
+        "media_service.app:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8030",
+        "--no-access-log",
+      ]
     depends_on:
       brain-python:
         condition: service_healthy
