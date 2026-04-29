@@ -229,10 +229,14 @@ WEATHER_AMAP_BASE_URL=https://restapi.amap.com/v3/weather/weatherInfo
 WEATHER_TIMEOUT=5
 WEATHER_TRUST_ENV_PROXY=false
 # WEATHER_CITYCODE_PATH=/app/citycode.xlsx
+RENDERER_ENABLED=false
+RENDERER_INTERNAL_BASE_URL=http://renderer-rust:8020
+RENDERER_TIMEOUT=3
 ```
 
-`WEATHER_AMAP_KEY` 是调用高德天气接口所需的 key。第一版 Weather 服务只返回文字，
-后续可以再接 renderer 生成天气卡片。
+`WEATHER_AMAP_KEY` 是调用高德天气接口必填的 key。设置
+`RENDERER_ENABLED=true` 并启用 renderer overlay 后，Weather 模块可以通过现有
+Brain/Gateway 响应格式返回天气卡片图片。
 
 ## Media 服务
 
@@ -293,7 +297,7 @@ TSPERSON_COMMAND_PREFIXES=/,.
 
 ## Rust 绘图服务
 
-renderer 模式会额外启动 `renderer-rust`，让 Bilibili/TSPerson 输出图片卡片。默认不启用。
+renderer 模式会额外启动 `renderer-rust`，让 Bilibili、TSPerson 和 Weather 输出图片卡片。默认不启用。
 
 root `.env`：
 
@@ -305,16 +309,16 @@ RENDER_SERVICE_PORT=8020
 在哪个模块里启用图片卡片，就改对应模块 env：
 
 ```env
-# config/modules/bilibili.env 或 config/modules/tsperson.env
+# config/modules/bilibili.env、config/modules/tsperson.env 或 config/modules/weather.env
 RENDERER_ENABLED=true
 RENDERER_INTERNAL_BASE_URL=http://renderer-rust:8020
 RENDERER_TIMEOUT=3
 ```
 
-启动核心、模块和 renderer：
+启动核心、模块、media 和 renderer：
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml -f docker-compose.media.yml up -d
 ```
 
 检查 renderer：
@@ -337,6 +341,7 @@ GET  /v1/assets/{id}.png
 
 - `bilibili.video`
 - `tsperson.status`
+- `weather.live`
 - `generic.summary`
 
 renderer 会把 PNG 存到 `renderer-assets` Docker volume。图片 asset id 基于 SHA-256；带同一个 `idempotency_key` 的重复渲染会返回同一个 URL。
@@ -425,6 +430,8 @@ cd brain-python && .venv/bin/python -m pytest
 docker compose config --quiet
 docker compose -f docker-compose.yml -f docker-compose.modules.yml config --quiet
 docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.media.yml config --quiet
+docker compose --profile napcat -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml -f docker-compose.media.yml config --quiet
 ```
 
 Bilibili 模块：

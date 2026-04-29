@@ -250,11 +250,15 @@ WEATHER_AMAP_BASE_URL=https://restapi.amap.com/v3/weather/weatherInfo
 WEATHER_TIMEOUT=5
 WEATHER_TRUST_ENV_PROXY=false
 # WEATHER_CITYCODE_PATH=/app/citycode.xlsx
+RENDERER_ENABLED=false
+RENDERER_INTERNAL_BASE_URL=http://renderer-rust:8020
+RENDERER_TIMEOUT=3
 ```
 
-`WEATHER_AMAP_KEY` is required for live Amap weather queries. The first Weather
-service version returns text only; renderer cards can be added later without
-changing the Brain/Gateway contract.
+`WEATHER_AMAP_KEY` is required for live Amap weather queries. With
+`RENDERER_ENABLED=true` and the renderer overlay running, the Weather module can
+return rendered weather card images through the normal Brain/Gateway response
+contract.
 
 ## Media Service
 
@@ -318,8 +322,8 @@ from inside the `module-tsperson` container.
 
 ## Rust Renderer
 
-Renderer mode adds `renderer-rust` and lets Bilibili/TSPerson produce image
-cards. It is optional and disabled by default.
+Renderer mode adds `renderer-rust` and lets Bilibili, TSPerson, and Weather
+produce image cards. It is optional and disabled by default.
 
 Root `.env`:
 
@@ -331,16 +335,16 @@ RENDER_SERVICE_PORT=8020
 Enable renderer output inside each module env that should generate cards:
 
 ```env
-# config/modules/bilibili.env or config/modules/tsperson.env
+# config/modules/bilibili.env, config/modules/tsperson.env, or config/modules/weather.env
 RENDERER_ENABLED=true
 RENDERER_INTERNAL_BASE_URL=http://renderer-rust:8020
 RENDERER_TIMEOUT=3
 ```
 
-Start core, modules, and renderer:
+Start core, modules, media, and renderer:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml -f docker-compose.media.yml up -d
 ```
 
 Check renderer:
@@ -363,6 +367,7 @@ First templates:
 
 - `bilibili.video`
 - `tsperson.status`
+- `weather.live`
 - `generic.summary`
 
 The renderer stores PNG assets in the `renderer-assets` Docker volume. Rendered
@@ -457,6 +462,7 @@ docker compose config --quiet
 docker compose -f docker-compose.yml -f docker-compose.modules.yml config --quiet
 docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml config --quiet
 docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.media.yml config --quiet
+docker compose --profile napcat -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml -f docker-compose.media.yml config --quiet
 ```
 
 Bilibili module:
