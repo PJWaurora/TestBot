@@ -6,6 +6,7 @@
 - Bilibili 模块服务：`PJWaurora/testbot-module-bilibili`。
 - TSPerson 模块服务：`PJWaurora/testbot-module-tsperson`。
 - Weather 模块服务：`PJWaurora/testbot-module-weather`。
+- Pixiv 模块服务：`PJWaurora/testbot-module-pixiv`。
 - Rust 绘图服务：`PJWaurora/testbot-render-service`。
 - Media 服务：`PJWaurora/testbot-media-service`。
 
@@ -21,6 +22,7 @@ workspace/
 ├── testbot-module-bilibili/
 ├── testbot-module-tsperson/
 ├── testbot-module-weather/
+├── testbot-module-pixiv/
 ├── testbot-render-service/
 └── testbot-media-service/
 ```
@@ -31,6 +33,7 @@ workspace/
 BILIBILI_MODULE_CONTEXT=../testbot-module-bilibili
 TSPERSON_MODULE_CONTEXT=../testbot-module-tsperson
 WEATHER_MODULE_CONTEXT=../testbot-module-weather
+PIXIV_MODULE_CONTEXT=../testbot-module-pixiv
 RENDER_SERVICE_CONTEXT=../testbot-render-service
 MEDIA_SERVICE_CONTEXT=../testbot-media-service
 ```
@@ -53,6 +56,7 @@ cp brain-python/.env.example brain-python/.env
 cp config/modules/bilibili.env.example config/modules/bilibili.env
 cp config/modules/tsperson.env.example config/modules/tsperson.env
 cp config/modules/weather.env.example config/modules/weather.env
+cp config/modules/pixiv.env.example config/modules/pixiv.env
 cp config/modules/render.env.example config/modules/render.env
 ```
 
@@ -69,6 +73,7 @@ GATEWAY_IMAGE=testbot-gateway-go:latest
 BILIBILI_MODULE_IMAGE=testbot-module-bilibili:latest
 TSPERSON_MODULE_IMAGE=testbot-module-tsperson:latest
 WEATHER_MODULE_IMAGE=testbot-module-weather:latest
+PIXIV_MODULE_IMAGE=testbot-module-pixiv:latest
 RENDER_SERVICE_IMAGE=testbot-renderer-rust:latest
 MEDIA_SERVICE_IMAGE=testbot-media-service:latest
 NAPCAT_IMAGE=mlikiowa/napcat-docker:latest
@@ -76,7 +81,7 @@ NAPCAT_IMAGE=mlikiowa/napcat-docker:latest
 
 `postgres` 和 `migrate` 会共用 `POSTGRES_IMAGE`，这是有意的：`migrate`
 只是一次性 SQL runner，用同一个镜像里的 `psql` 执行迁移。Bilibili、
-TSPerson、Weather 和 renderer 是独立服务仓库，所以是独立镜像。
+TSPerson、Weather、Pixiv 和 renderer 是独立服务仓库，所以是独立镜像。
 
 ## 只启动核心服务
 
@@ -122,16 +127,20 @@ NAPCAT_WEBUI_PORT=6099
 
 ## 启动模块服务
 
-模块模式会额外启动 Bilibili、TSPerson 和 Weather 三个外部 HTTP 模块服务，并把它们注册到 Brain。
+模块模式会额外启动 Bilibili、TSPerson 和 Weather 三个外部 HTTP 模块服务，并把它们注册到 Brain。Pixiv 的 compose 入口也已经预留，但放在单独的 `docker-pixiv` profile 后面，避免现有 `docker-modules` 启动依赖新仓库。
 
 root `.env`：
 
 ```env
-BRAIN_MODULE_SERVICES=bilibili=http://module-bilibili:8011,tsperson=http://module-tsperson:8012,weather=http://module-weather:8013
+BRAIN_MODULE_SERVICE_DEFAULTS=bilibili=http://module-bilibili:8011,tsperson=http://module-tsperson:8012,weather=http://module-weather:8013
+# Pixiv 仓库就绪后，可选改成：
+# BRAIN_MODULE_SERVICE_DEFAULTS=bilibili=http://module-bilibili:8011,tsperson=http://module-tsperson:8012,weather=http://module-weather:8013,pixiv=http://module-pixiv:8014
+BRAIN_MODULE_SERVICES=
 BRAIN_MODULE_TIMEOUT=20
 BILIBILI_MODULE_PORT=8011
 TSPERSON_MODULE_PORT=8012
 WEATHER_MODULE_PORT=8013
+PIXIV_MODULE_PORT=8014
 OUTBOX_TOKEN=<random-shared-token>
 ```
 
@@ -156,6 +165,23 @@ curl http://127.0.0.1:8000/tools
 ```
 
 Brain 会先应用群黑白名单策略，再调用远程模块的 `POST /handle`。模块超时、连接失败、非 2xx、非法 JSON 都会被当作 no reply，不会自动重试，避免 QQ 重复发消息。
+
+后续如果要把 Pixiv 一起交给 compose 管理，把
+`,pixiv=http://module-pixiv:8014` 追加到 `BRAIN_MODULE_SERVICE_DEFAULTS`，
+再加上额外 profile：
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.modules.yml \
+  --profile docker-app \
+  --profile docker-modules \
+  --profile docker-pixiv \
+  up -d
+```
+
+如果只是临时联调，也可以不动 compose 默认值，直接设置
+`BRAIN_MODULE_SERVICES=pixiv=http://127.0.0.1:8014`。
 
 ## Brain Outbox
 
@@ -245,6 +271,32 @@ RENDERER_TIMEOUT=3
 `WEATHER_AMAP_KEY` 是调用高德天气接口必填的 key。设置
 `RENDERER_ENABLED=true` 并启用 renderer overlay 后，Weather 模块可以通过现有
 Brain/Gateway 响应格式返回天气卡片图片。
+
+## Pixiv 模块
+
+`docker-compose.modules.yml` 已经为独立的 `testbot-module-pixiv` 仓库预留
+`module-pixiv` 服务，约定如下：
+
+- compose profile：`docker-pixiv`
+- 容器端口：`8014`
+- root `.env`：`PIXIV_MODULE_CONTEXT`、`PIXIV_MODULE_IMAGE`、`PIXIV_MODULE_PORT`
+- 可选本地配置：`config/modules/pixiv.env`
+
+当前 Pixiv 模块建议使用的本地配置模板如下：
+
+```env
+PIXIV_REFRESH_TOKEN=
+PIXIV_TIMEOUT=8
+PIXIV_TRUST_ENV_PROXY=true
+PIXIV_GROUP_ALLOWLIST=
+PIXIV_GROUP_BLOCKLIST=
+PIXIV_RESTRICTED_TAGS=R-18,R-18G
+PIXIV_CACHE_TTL_MINUTES=60
+PIXIV_IMAGE_CACHE_DIR=/tmp/testbot-pixiv-assets
+PIXIV_IMAGE_CACHE_TTL_SECONDS=3600
+PIXIV_ASSET_BASE_URL=http://127.0.0.1:8014
+PIXIV_COMMAND_PREFIXES=/,.
+```
 
 ## Media 服务
 
@@ -432,6 +484,13 @@ cd ../testbot-module-weather
 python -m uvicorn weather_service.app:app --host 0.0.0.0 --port 8013 --reload
 ```
 
+运行 Pixiv 模块：
+
+```bash
+cd ../testbot-module-pixiv
+python -m uvicorn pixiv_module.main:app --host 0.0.0.0 --port 8014 --reload
+```
+
 运行 renderer：
 
 ```bash
@@ -443,6 +502,8 @@ cargo run
 
 ```env
 BRAIN_MODULE_SERVICES=bilibili=http://127.0.0.1:8011,tsperson=http://127.0.0.1:8012,weather=http://127.0.0.1:8013
+# 临时接本地 Pixiv 时：
+# BRAIN_MODULE_SERVICES=pixiv=http://127.0.0.1:8014
 ```
 
 ## 测试命令
@@ -479,6 +540,14 @@ Weather 模块：
 
 ```bash
 cd ../testbot-module-weather
+python -m pytest
+docker build .
+```
+
+Pixiv 模块：
+
+```bash
+cd ../testbot-module-pixiv
 python -m pytest
 docker build .
 ```

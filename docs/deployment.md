@@ -6,6 +6,7 @@ This guide covers the current split-service deployment model:
 - Bilibili module service: `PJWaurora/testbot-module-bilibili`.
 - TSPerson module service: `PJWaurora/testbot-module-tsperson`.
 - Weather module service: `PJWaurora/testbot-module-weather`.
+- Pixiv module service: `PJWaurora/testbot-module-pixiv`.
 - Rust renderer service: `PJWaurora/testbot-render-service`.
 - Media service: `PJWaurora/testbot-media-service`.
 
@@ -24,6 +25,7 @@ workspace/
 ├── testbot-module-bilibili/
 ├── testbot-module-tsperson/
 ├── testbot-module-weather/
+├── testbot-module-pixiv/
 ├── testbot-render-service/
 └── testbot-media-service/
 ```
@@ -34,6 +36,7 @@ Default compose paths expect exactly this layout:
 BILIBILI_MODULE_CONTEXT=../testbot-module-bilibili
 TSPERSON_MODULE_CONTEXT=../testbot-module-tsperson
 WEATHER_MODULE_CONTEXT=../testbot-module-weather
+PIXIV_MODULE_CONTEXT=../testbot-module-pixiv
 RENDER_SERVICE_CONTEXT=../testbot-render-service
 MEDIA_SERVICE_CONTEXT=../testbot-media-service
 ```
@@ -63,6 +66,7 @@ cp brain-python/.env.example brain-python/.env
 cp config/modules/bilibili.env.example config/modules/bilibili.env
 cp config/modules/tsperson.env.example config/modules/tsperson.env
 cp config/modules/weather.env.example config/modules/weather.env
+cp config/modules/pixiv.env.example config/modules/pixiv.env
 cp config/modules/render.env.example config/modules/render.env
 ```
 
@@ -80,6 +84,7 @@ GATEWAY_IMAGE=testbot-gateway-go:latest
 BILIBILI_MODULE_IMAGE=testbot-module-bilibili:latest
 TSPERSON_MODULE_IMAGE=testbot-module-tsperson:latest
 WEATHER_MODULE_IMAGE=testbot-module-weather:latest
+PIXIV_MODULE_IMAGE=testbot-module-pixiv:latest
 RENDER_SERVICE_IMAGE=testbot-renderer-rust:latest
 MEDIA_SERVICE_IMAGE=testbot-media-service:latest
 NAPCAT_IMAGE=mlikiowa/napcat-docker:latest
@@ -87,8 +92,8 @@ NAPCAT_IMAGE=mlikiowa/napcat-docker:latest
 
 `postgres` and `migrate` intentionally share `POSTGRES_IMAGE`; `migrate` is a
 one-shot SQL runner that uses the same image for `psql`. Bilibili, TSPerson,
-Weather, and renderer are separate images because they are separate service
-repositories.
+Weather, Pixiv, and renderer are separate images because they are separate
+service repositories.
 
 ## Core Only
 
@@ -138,16 +143,22 @@ NAPCAT_WEBUI_PORT=6099
 ## Module Services
 
 Module mode adds Bilibili, TSPerson, and Weather as external HTTP services and
-registers them with Brain.
+registers them with Brain. Pixiv has a reserved compose entry, but it is kept
+behind a separate `docker-pixiv` profile so existing `docker-modules` startup
+does not require the new repo.
 
 Root `.env`:
 
 ```env
-BRAIN_MODULE_SERVICES=bilibili=http://module-bilibili:8011,tsperson=http://module-tsperson:8012,weather=http://module-weather:8013
+BRAIN_MODULE_SERVICE_DEFAULTS=bilibili=http://module-bilibili:8011,tsperson=http://module-tsperson:8012,weather=http://module-weather:8013
+# Optional Pixiv compose default after its repo is ready:
+# BRAIN_MODULE_SERVICE_DEFAULTS=bilibili=http://module-bilibili:8011,tsperson=http://module-tsperson:8012,weather=http://module-weather:8013,pixiv=http://module-pixiv:8014
+BRAIN_MODULE_SERVICES=
 BRAIN_MODULE_TIMEOUT=20
 BILIBILI_MODULE_PORT=8011
 TSPERSON_MODULE_PORT=8012
 WEATHER_MODULE_PORT=8013
+PIXIV_MODULE_PORT=8014
 OUTBOX_TOKEN=<random-shared-token>
 ```
 
@@ -175,6 +186,23 @@ Brain applies group allow/block policy before calling remote modules. Remote
 module timeouts, connection failures, non-2xx responses, and invalid JSON are
 treated as no reply. Brain does not retry remote module calls, which avoids
 duplicate QQ messages.
+
+When you want Compose-managed Pixiv later, append
+`,pixiv=http://module-pixiv:8014` to `BRAIN_MODULE_SERVICE_DEFAULTS` and start
+the extra profile:
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.modules.yml \
+  --profile docker-app \
+  --profile docker-modules \
+  --profile docker-pixiv \
+  up -d
+```
+
+For one-off local testing, you can also leave the compose default unchanged and
+set `BRAIN_MODULE_SERVICES=pixiv=http://127.0.0.1:8014`.
 
 ## Brain Outbox
 
@@ -267,6 +295,32 @@ RENDERER_TIMEOUT=3
 `RENDERER_ENABLED=true` and the renderer overlay running, the Weather module can
 return rendered weather card images through the normal Brain/Gateway response
 contract.
+
+## Pixiv Module
+
+`docker-compose.modules.yml` reserves `module-pixiv` for the separate
+`testbot-module-pixiv` repository. It uses:
+
+- compose profile `docker-pixiv`
+- container port `8014`
+- root `.env` keys `PIXIV_MODULE_CONTEXT`, `PIXIV_MODULE_IMAGE`, and `PIXIV_MODULE_PORT`
+- optional local env file `config/modules/pixiv.env`
+
+The tracked template now covers the current runtime knobs:
+
+```env
+PIXIV_REFRESH_TOKEN=
+PIXIV_TIMEOUT=8
+PIXIV_TRUST_ENV_PROXY=true
+PIXIV_GROUP_ALLOWLIST=
+PIXIV_GROUP_BLOCKLIST=
+PIXIV_RESTRICTED_TAGS=R-18,R-18G
+PIXIV_CACHE_TTL_MINUTES=60
+PIXIV_IMAGE_CACHE_DIR=/tmp/testbot-pixiv-assets
+PIXIV_IMAGE_CACHE_TTL_SECONDS=3600
+PIXIV_ASSET_BASE_URL=http://127.0.0.1:8014
+PIXIV_COMMAND_PREFIXES=/,.
+```
 
 ## Media Service
 
@@ -463,6 +517,13 @@ cd ../testbot-module-weather
 python -m uvicorn weather_service.app:app --host 0.0.0.0 --port 8013 --reload
 ```
 
+Run Pixiv module:
+
+```bash
+cd ../testbot-module-pixiv
+python -m uvicorn pixiv_module.main:app --host 0.0.0.0 --port 8014 --reload
+```
+
 Run renderer:
 
 ```bash
@@ -474,6 +535,8 @@ For local Brain to call local modules, set:
 
 ```env
 BRAIN_MODULE_SERVICES=bilibili=http://127.0.0.1:8011,tsperson=http://127.0.0.1:8012,weather=http://127.0.0.1:8013
+# Optional Pixiv during local bring-up:
+# BRAIN_MODULE_SERVICES=pixiv=http://127.0.0.1:8014
 ```
 
 ## Test Commands
@@ -510,6 +573,14 @@ Weather module:
 
 ```bash
 cd ../testbot-module-weather
+python -m pytest
+docker build .
+```
+
+Pixiv module:
+
+```bash
+cd ../testbot-module-pixiv
 python -m pytest
 docker build .
 ```
