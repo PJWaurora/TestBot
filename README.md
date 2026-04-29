@@ -115,10 +115,23 @@ TSPERSON_GROUP_ALLOWLIST
 TSPERSON_GROUP_BLOCKLIST
 WEATHER_GROUP_ALLOWLIST
 WEATHER_GROUP_BLOCKLIST
+WEATHER_COMMAND_PREFIXES
 ```
 
 Use comma, semicolon, or whitespace separated group IDs. Blocklists win over
 allowlists. Empty allowlists mean the module is allowed in all groups.
+
+Weather module runtime settings live in `config/modules/weather.env`:
+
+```text
+WEATHER_AMAP_KEY
+WEATHER_AMAP_BASE_URL
+WEATHER_TIMEOUT
+WEATHER_TRUST_ENV_PROXY
+RENDERER_ENABLED
+RENDERER_INTERNAL_BASE_URL
+RENDERER_TIMEOUT
+```
 
 ## Docker Compose
 
@@ -210,7 +223,15 @@ lives elsewhere. The overlay publishes the renderer port with
 with `RENDERER_ENABLED=true` and point modules at
 `RENDERER_INTERNAL_BASE_URL=http://renderer-rust:8020`. Set
 `RENDERER_PUBLIC_BASE_URL` in the root `.env`; this is the URL embedded in image
-messages and must be reachable by NapCat.
+messages and must be reachable by NapCat. Add `docker-compose.media.yml` only
+when you also want the async media downloader.
+
+The Weather module handles `天气 <城市>`, `<城市>天气`, `/weather <城市>`,
+`.weather <城市>`, and tool calls such as `weather.get_live(city)` or
+`weather.get_live(adcode)`. `WEATHER_AMAP_KEY` is required in
+`config/modules/weather.env` for Amap weather queries. With the renderer
+overlay running and `RENDERER_ENABLED=true`, the Weather module can return
+rendered weather card images.
 
 Optional per-module env files live under `config/modules/`. Copy the examples
 when you need local module-specific settings:
