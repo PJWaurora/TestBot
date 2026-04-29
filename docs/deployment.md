@@ -99,7 +99,7 @@ pulling new SQL migrations, run the migration job before starting Brain:
 ```bash
 docker compose up -d postgres
 docker compose --profile tools run --rm migrate
-docker compose up -d brain-python gateway-go
+docker compose --profile docker-app up -d brain-python gateway-go
 ```
 
 In this mode Brain loads only the local fake echo module. Normal text, Bilibili
@@ -154,7 +154,12 @@ OUTBOX_TOKEN=<random-shared-token>
 Start core plus modules:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.modules.yml up -d
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.modules.yml \
+  --profile docker-app \
+  --profile docker-modules \
+  up -d
 ```
 
 Check module health:
@@ -284,7 +289,14 @@ database or if `database/migrations/` changed:
 ```bash
 docker compose up -d postgres
 docker compose --profile tools run --rm migrate
-docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.media.yml up -d
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.modules.yml \
+  -f docker-compose.media.yml \
+  --profile docker-app \
+  --profile docker-modules \
+  --profile docker-media \
+  up -d
 ```
 
 The media overlay passes `BRAIN_BASE_URL`, `PYTHON_BRAIN_URL`, and
@@ -347,7 +359,14 @@ RENDERER_TIMEOUT=3
 Start core, modules, and renderer:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml up -d
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.modules.yml \
+  -f docker-compose.render.yml \
+  --profile docker-app \
+  --profile docker-modules \
+  --profile docker-render \
+  up -d
 ```
 
 Add `-f docker-compose.media.yml` only when you also want the async media
@@ -465,10 +484,10 @@ Core:
 cd gateway-go && go test ./...
 cd brain-python && .venv/bin/python -m pytest
 docker compose config --quiet
-docker compose -f docker-compose.yml -f docker-compose.modules.yml config --quiet
-docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml config --quiet
-docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.media.yml config --quiet
-docker compose --profile napcat -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml -f docker-compose.media.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.modules.yml --profile docker-app --profile docker-modules config --quiet
+docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml --profile docker-app --profile docker-modules --profile docker-render config --quiet
+docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.media.yml --profile docker-app --profile docker-modules --profile docker-media config --quiet
+docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml -f docker-compose.media.yml --profile docker-app --profile docker-modules --profile docker-render --profile docker-media --profile napcat config --quiet
 ```
 
 Bilibili module:

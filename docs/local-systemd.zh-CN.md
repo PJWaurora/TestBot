@@ -23,7 +23,31 @@ chmod +x scripts/install-local-systemd.sh scripts/start-local-systemd.sh
 ./scripts/start-local-systemd.sh
 ```
 
+`scripts/start-all.sh` 现在也是这个低配入口。它不会再启动全 Docker 栈，只会：
+
+- 启动 Docker 里的 `postgres` 和 `napcat`
+- 停掉可能残留的 Docker app 容器
+- 重启本地 systemd 服务
+
 安装脚本会生成 `/etc/testbot/local.env`，从 `/root/TestBot/.env` 读取数据库密码和 `OUTBOX_TOKEN`，再把模块、renderer、media 的地址改成本地地址。
+
+## Compose 使用边界
+
+默认 `docker compose up` 只用于基础 Docker 服务，不会启动 Brain、Gateway、模块、renderer 或 media。全 Docker 开发模式需要显式 profile：
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.modules.yml \
+  -f docker-compose.render.yml \
+  -f docker-compose.media.yml \
+  --profile docker-app \
+  --profile docker-modules \
+  --profile docker-render \
+  --profile docker-media \
+  --profile napcat \
+  up
+```
 
 ## 常用命令
 

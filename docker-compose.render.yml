@@ -1,5 +1,7 @@
 services:
   renderer-rust:
+    profiles:
+      - docker-render
     image: ${RENDER_SERVICE_IMAGE:-testbot-renderer-rust:latest}
     build:
       context: ${RENDER_SERVICE_CONTEXT:-../testbot-render-service}

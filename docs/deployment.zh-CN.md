@@ -86,7 +86,7 @@ TSPerson、Weather 和 renderer 是独立服务仓库，所以是独立镜像。
 ```bash
 docker compose up -d postgres
 docker compose --profile tools run --rm migrate
-docker compose up -d brain-python gateway-go
+docker compose --profile docker-app up -d brain-python gateway-go
 ```
 
 这个模式下，Brain 默认只加载本地 fake echo 模块。普通文本、Bilibili 链接、TSPerson 命令和 Weather 命令会保持静默，除非命中 fake planner 或以后配置的其他模块。
@@ -138,7 +138,12 @@ OUTBOX_TOKEN=<random-shared-token>
 启动核心服务和模块服务：
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.modules.yml up -d
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.modules.yml \
+  --profile docker-app \
+  --profile docker-modules \
+  up -d
 ```
 
 检查模块：
@@ -262,7 +267,14 @@ OUTBOX_TOKEN=<random-shared-token>
 ```bash
 docker compose up -d postgres
 docker compose --profile tools run --rm migrate
-docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.media.yml up -d
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.modules.yml \
+  -f docker-compose.media.yml \
+  --profile docker-app \
+  --profile docker-modules \
+  --profile docker-media \
+  up -d
 ```
 
 media overlay 会把 `BRAIN_BASE_URL`、`PYTHON_BRAIN_URL` 和 `OUTBOX_TOKEN`
@@ -321,7 +333,14 @@ RENDERER_TIMEOUT=3
 启动核心、模块和 renderer：
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml up -d
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.modules.yml \
+  -f docker-compose.render.yml \
+  --profile docker-app \
+  --profile docker-modules \
+  --profile docker-render \
+  up -d
 ```
 
 只有在你还要启用异步媒体下载，并且已经准备好 media service 仓库和配置时，
@@ -434,10 +453,10 @@ BRAIN_MODULE_SERVICES=bilibili=http://127.0.0.1:8011,tsperson=http://127.0.0.1:8
 cd gateway-go && go test ./...
 cd brain-python && .venv/bin/python -m pytest
 docker compose config --quiet
-docker compose -f docker-compose.yml -f docker-compose.modules.yml config --quiet
-docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml config --quiet
-docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.media.yml config --quiet
-docker compose --profile napcat -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml -f docker-compose.media.yml config --quiet
+docker compose -f docker-compose.yml -f docker-compose.modules.yml --profile docker-app --profile docker-modules config --quiet
+docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml --profile docker-app --profile docker-modules --profile docker-render config --quiet
+docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.media.yml --profile docker-app --profile docker-modules --profile docker-media config --quiet
+docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml -f docker-compose.media.yml --profile docker-app --profile docker-modules --profile docker-render --profile docker-media --profile napcat config --quiet
 ```
 
 Bilibili 模块：

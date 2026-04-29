@@ -13,6 +13,8 @@ services:
         condition: service_started
 
   module-bilibili:
+    profiles:
+      - docker-modules
     image: ${BILIBILI_MODULE_IMAGE:-testbot-module-bilibili:latest}
     build:
       context: ${BILIBILI_MODULE_CONTEXT:-../testbot-module-bilibili}
@@ -32,6 +34,8 @@ services:
       ]
 
   module-tsperson:
+    profiles:
+      - docker-modules
     image: ${TSPERSON_MODULE_IMAGE:-testbot-module-tsperson:latest}
     build:
       context: ${TSPERSON_MODULE_CONTEXT:-../testbot-module-tsperson}
@@ -51,6 +55,8 @@ services:
       ]
 
   module-weather:
+    profiles:
+      - docker-modules
     image: ${WEATHER_MODULE_IMAGE:-testbot-module-weather:latest}
     build:
       context: ${WEATHER_MODULE_CONTEXT:-../testbot-module-weather}

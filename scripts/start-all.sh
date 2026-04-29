@@ -2,28 +2,14 @@
 set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$ROOT_DIR"
 
-if ! docker compose version >/dev/null 2>&1; then
-  echo "docker compose is not available. Install Docker Compose v2 first." >&2
+if [[ $# -gt 0 ]]; then
+  echo "scripts/start-all.sh now starts the low-resource local deployment and does not accept docker compose flags." >&2
+  echo "Use docker compose directly for full Docker development runs." >&2
   exit 1
 fi
 
-if [[ ! -f .env ]]; then
-  echo "Missing .env. Create it first:" >&2
-  echo "  cp .env.example .env" >&2
-  exit 1
-fi
-
-compose_files=(
-  -f docker-compose.yml
-  -f docker-compose.modules.yml
-  -f docker-compose.render.yml
-  -f docker-compose.media.yml
-)
-
-echo "Starting TestBot core, modules, renderer, media, and NapCat..."
-docker compose "${compose_files[@]}" --profile napcat up -d "$@"
-
-echo
-docker compose "${compose_files[@]}" --profile napcat ps
+echo "Starting TestBot low-resource local deployment..."
+echo "Docker: postgres + napcat"
+echo "systemd: gateway, brain, modules, renderer, media"
+exec "$ROOT_DIR/scripts/start-local-systemd.sh"

@@ -1,5 +1,7 @@
 services:
   testbot-media:
+    profiles:
+      - docker-media
     image: ${MEDIA_SERVICE_IMAGE:-testbot-media-service:latest}
     build:
       context: ${MEDIA_SERVICE_CONTEXT:-../testbot-media-service}

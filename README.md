@@ -168,13 +168,17 @@ use `testbot-module-bilibili:latest`, `testbot-module-tsperson:latest`,
 `postgres` and `migrate` intentionally share `POSTGRES_IMAGE` because
 `migrate` only runs `psql` for SQL migrations.
 
-Start Postgres, Brain, and Gateway:
+By default, `docker compose up` starts only the base database service. Docker
+app containers are behind profiles so they are not started accidentally on
+low-resource hosts.
+
+Start the Docker development core explicitly:
 
 ```bash
-docker compose up -d postgres brain-python gateway-go
+docker compose --profile docker-app up -d postgres brain-python gateway-go
 ```
 
-For low-resource servers, prefer the local systemd deployment. It keeps only
+For low-resource servers, use the local systemd deployment. It keeps only
 `postgres` and `napcat` in Docker and runs Gateway, Brain, modules, renderer,
 and media service as host processes:
 
@@ -185,23 +189,38 @@ and media service as host processes:
 
 中文说明见 [docs/local-systemd.zh-CN.md](docs/local-systemd.zh-CN.md)。
 
-Start everything managed by this repository, including module services, the
-Rust renderer, and NapCat:
+`scripts/start-all.sh` is the low-resource production entrypoint and is
+equivalent to `scripts/start-local-systemd.sh`:
 
 ```bash
 scripts/start-all.sh
 ```
 
-Pass compose `up` flags when needed:
+For full Docker development with every optional service, use profiles directly:
 
 ```bash
-scripts/start-all.sh --build
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.modules.yml \
+  -f docker-compose.render.yml \
+  -f docker-compose.media.yml \
+  --profile docker-app \
+  --profile docker-modules \
+  --profile docker-render \
+  --profile docker-media \
+  --profile napcat \
+  up
 ```
 
 Start the core services with the optional Bilibili, TSPerson, and Weather module services:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.modules.yml up
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.modules.yml \
+  --profile docker-app \
+  --profile docker-modules \
+  up
 ```
 
 The modules compose overlay expects the module repositories to be cloned next to
@@ -224,7 +243,14 @@ The render file is an overlay, so use it together with the base and module
 compose files:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml up
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.modules.yml \
+  -f docker-compose.render.yml \
+  --profile docker-app \
+  --profile docker-modules \
+  --profile docker-render \
+  up
 ```
 
 The render compose overlay expects the renderer repository to be cloned next to

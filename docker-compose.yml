@@ -60,6 +60,8 @@ services:
         psql -h postgres -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -v ON_ERROR_STOP=1 -f /migrations/000003_message_outbox.up.sql
 
   brain-python:
+    profiles:
+      - docker-app
     image: ${BRAIN_IMAGE:-testbot-brain-python:latest}
     build:
       context: ./brain-python
@@ -96,6 +98,8 @@ services:
       start_period: 10s
 
   gateway-go:
+    profiles:
+      - docker-app
     image: ${GATEWAY_IMAGE:-testbot-gateway-go:latest}
     build:
       context: ./gateway-go
@@ -135,10 +139,6 @@ services:
       - ${NAPCAT_DATA_DIR:-./napcat}/plugins:/app/napcat/plugins
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    depends_on:
-      gateway-go:
-        condition: service_started
-
 volumes:
   postgres-data:
   go-mod-cache:
