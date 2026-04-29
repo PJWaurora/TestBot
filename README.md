@@ -70,7 +70,10 @@ curl http://localhost:8000/health
 
 The Brain service exposes tools through `GET /tools` and `POST /tools/call`. Chat requests sent to `POST /chat` are resolved by the deterministic command router first. By default, Brain core loads only the local fake echo module; `GET /tools` returns only `echo` unless remote module services are configured.
 
-Bilibili, TSPerson, and Weather are external HTTP module services, not default in-core Brain modules. Enable them through `docker-compose.modules.yml`.
+Bilibili, TSPerson, and Weather are external HTTP module services, not default
+in-core Brain modules. Enable them through `docker-compose.modules.yml`. Pixiv
+has a reserved compose entry in the same overlay, but it stays behind a
+separate `docker-pixiv` profile so the existing module flow does not change.
 
 `BRAIN_MODULE_SERVICE_DEFAULTS` is the compose-managed default module list.
 `BRAIN_MODULE_SERVICES` is a comma-separated list of extra or overriding
@@ -88,6 +91,12 @@ such as Weather. For each configured module, Brain applies the core group
 allow/block policy before calling `POST /handle` on the remote service with the
 existing `ChatRequest` JSON shape. Remote service failures, timeouts, non-2xx
 responses, and invalid JSON are logged and treated as no reply with no retries.
+
+To add the reserved Pixiv module once `testbot-module-pixiv` is ready, append
+`,pixiv=http://module-pixiv:8014` to `BRAIN_MODULE_SERVICE_DEFAULTS` and start
+the `docker-pixiv` profile. For a one-off local or remote Pixiv endpoint, put
+only the Pixiv override in `BRAIN_MODULE_SERVICES`, for example
+`pixiv=http://127.0.0.1:8014`.
 
 `GET /tools` returns the local fake echo tool plus tools discovered from each remote module service's `GET /tools`. `POST /tools/call` forwards remote tool calls to the owning service by discovered tool name; remote call failures return `ToolResult(ok=false)`.
 
@@ -117,6 +126,8 @@ BRAIN_MODULE_TSPERSON_GROUP_ALLOWLIST
 BRAIN_MODULE_TSPERSON_GROUP_BLOCKLIST
 BRAIN_MODULE_WEATHER_GROUP_ALLOWLIST
 BRAIN_MODULE_WEATHER_GROUP_BLOCKLIST
+BRAIN_MODULE_PIXIV_GROUP_ALLOWLIST
+BRAIN_MODULE_PIXIV_GROUP_BLOCKLIST
 BILIBILI_GROUP_ALLOWLIST
 BILIBILI_GROUP_BLOCKLIST
 TSPERSON_GROUP_ALLOWLIST
@@ -124,6 +135,9 @@ TSPERSON_GROUP_BLOCKLIST
 WEATHER_GROUP_ALLOWLIST
 WEATHER_GROUP_BLOCKLIST
 WEATHER_COMMAND_PREFIXES
+PIXIV_GROUP_ALLOWLIST
+PIXIV_GROUP_BLOCKLIST
+PIXIV_COMMAND_PREFIXES
 ```
 
 Use comma, semicolon, or whitespace separated group IDs. Blocklists win over
@@ -164,7 +178,8 @@ only for that local-proxy case.
 Compose image names are explicit in `.env.example`: core uses
 `testbot-brain-python:latest` and `testbot-gateway-go:latest`; module overlays
 use `testbot-module-bilibili:latest`, `testbot-module-tsperson:latest`,
-`testbot-module-weather:latest`, and `testbot-renderer-rust:latest`.
+`testbot-module-weather:latest`, `testbot-module-pixiv:latest`, and
+`testbot-renderer-rust:latest`.
 `postgres` and `migrate` intentionally share `POSTGRES_IMAGE` because
 `migrate` only runs `psql` for SQL migrations.
 
@@ -214,13 +229,15 @@ docker compose \
   -f docker-compose.media.yml \
   --profile docker-app \
   --profile docker-modules \
+  --profile docker-pixiv \
   --profile docker-render \
   --profile docker-media \
   --profile napcat \
   up
 ```
 
-Start the core services with the optional Bilibili, TSPerson, and Weather module services:
+Start the core services with the optional Bilibili, TSPerson, and Weather
+module services:
 
 ```bash
 docker compose \
@@ -238,13 +255,29 @@ this repository by default:
 ../testbot-module-bilibili
 ../testbot-module-tsperson
 ../testbot-module-weather
+../testbot-module-pixiv
 ```
 
 Use `BILIBILI_MODULE_CONTEXT`, `TSPERSON_MODULE_CONTEXT`, and
 `WEATHER_MODULE_CONTEXT` in the root `.env` when the module repositories live
-elsewhere. The overlay publishes module ports with `BILIBILI_MODULE_PORT`,
+elsewhere. `PIXIV_MODULE_CONTEXT` is reserved for the optional Pixiv profile.
+The overlay publishes module ports with `BILIBILI_MODULE_PORT`,
 `TSPERSON_MODULE_PORT`, and `WEATHER_MODULE_PORT`, defaulting to `8011`,
-`8012`, and `8013`.
+`8012`, and `8013`; the reserved Pixiv profile uses `PIXIV_MODULE_PORT`,
+defaulting to `8014`.
+
+When the Pixiv module repository is ready, start it separately so existing
+`docker-modules` flows keep working unchanged:
+
+```bash
+docker compose \
+  -f docker-compose.yml \
+  -f docker-compose.modules.yml \
+  --profile docker-app \
+  --profile docker-modules \
+  --profile docker-pixiv \
+  up
+```
 
 Start the core services, module services, and optional Rust renderer service.
 The render file is an overlay, so use it together with the base and module
@@ -293,6 +326,7 @@ when you need local module-specific settings:
 cp config/modules/bilibili.env.example config/modules/bilibili.env
 cp config/modules/tsperson.env.example config/modules/tsperson.env
 cp config/modules/weather.env.example config/modules/weather.env
+cp config/modules/pixiv.env.example config/modules/pixiv.env
 cp config/modules/render.env.example config/modules/render.env
 ```
 

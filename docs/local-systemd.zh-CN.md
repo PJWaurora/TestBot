@@ -7,6 +7,10 @@
 - Docker: `postgres`, `napcat`
 - systemd: `testbot-gateway`, `testbot-brain`, `testbot-module-bilibili`, `testbot-module-tsperson`, `testbot-module-weather`, `testbot-renderer`, `testbot-media`
 
+当前本地 systemd 脚本仍只安装上面这 3 个模块。Pixiv 这次只预留了 compose
+和配置文件入口，未在现有脚本里新增 `testbot-module-pixiv` unit，因此不会影响
+现有 bilibili/tsperson/weather 运行。
+
 本地服务之间全部走 `127.0.0.1`。发给 NapCat 拉取的图片和视频 URL 使用：
 
 - `http://host.docker.internal:8020`
@@ -112,6 +116,7 @@ curl http://127.0.0.1:8030/health
 - `/root/TestBot/config/modules/bilibili.env`
 - `/root/TestBot/config/modules/tsperson.env`
 - `/root/TestBot/config/modules/weather.env`
+- `/root/TestBot/config/modules/pixiv.env`（Pixiv 预留，默认端口 `8014`）
 - `/root/TestBot/config/modules/render.env`
 
 本地部署统一覆盖地址的文件是：

@@ -77,3 +77,25 @@ services:
         "8013",
         "--no-access-log",
       ]
+
+  module-pixiv:
+    profiles:
+      - docker-pixiv
+    image: ${PIXIV_MODULE_IMAGE:-testbot-module-pixiv:latest}
+    build:
+      context: ${PIXIV_MODULE_CONTEXT:-../testbot-module-pixiv}
+    env_file:
+      - path: ./config/modules/pixiv.env
+        required: false
+    ports:
+      - "${PIXIV_MODULE_PORT:-8014}:8014"
+    command:
+      [
+        "uvicorn",
+        "pixiv_module.main:app",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8014",
+        "--no-access-log",
+      ]
