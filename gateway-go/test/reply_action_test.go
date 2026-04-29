@@ -87,6 +87,53 @@ func TestDispatchUsesBrainWhenEnabled(t *testing.T) {
 	}
 }
 
+func TestDispatchUsesSeparateActionsForImageAndTextMessages(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"handled": true,
+			"should_reply": true,
+			"messages": [
+				{"type": "image", "url": "https://example.test/card.png"},
+				{"type": "text", "text": "detail text"}
+			]
+		}`))
+	}))
+	defer server.Close()
+	t.Setenv("BRAIN_BASE_URL", server.URL)
+
+	data := []byte(`{
+		"post_type": "message",
+		"message_type": "group",
+		"user_id": 9,
+		"group_id": 8,
+		"message": [
+			{"type": "text", "data": {"text": "hello"}}
+		]
+	}`)
+
+	actions := handler.Dispatch(data)
+	if len(actions) != 2 {
+		t.Fatalf("action count = %d, want 2", len(actions))
+	}
+
+	first, ok := actions[0].Params.(napcat.SendGroupMessageParams)
+	if !ok {
+		t.Fatalf("first params type = %T, want SendGroupMessageParams", actions[0].Params)
+	}
+	second, ok := actions[1].Params.(napcat.SendGroupMessageParams)
+	if !ok {
+		t.Fatalf("second params type = %T, want SendGroupMessageParams", actions[1].Params)
+	}
+
+	if first.Message != "[CQ:image,file=https://example.test/card.png]" {
+		t.Fatalf("first message = %q", first.Message)
+	}
+	if second.Message != "detail text" {
+		t.Fatalf("second message = %q", second.Message)
+	}
+}
+
 func TestDispatchSilencesWhenBrainDoesNotHandle(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

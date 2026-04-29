@@ -172,16 +172,11 @@ func BrainResponseActions(message normalizer.IncomingMessage, response *brain.Re
 	}
 
 	if len(response.Messages) > 0 {
-		action, ok := napcat.NewSendMessageItemsAction(
-			message.MessageType,
-			message.UserID,
-			message.GroupID,
-			brainMessagesToNapcatItems(response.Messages),
-		)
-		if !ok {
+		actions := brainMessagesToNapcatActions(message, response.Messages)
+		if len(actions) == 0 {
 			return nil
 		}
-		return []napcat.Action{action}
+		return actions
 	}
 
 	if response.Reply == "" {
@@ -213,6 +208,27 @@ func brainMessagesToNapcatItems(messages []brain.Message) []napcat.BrainMessageI
 		})
 	}
 	return items
+}
+
+func brainMessagesToNapcatActions(message normalizer.IncomingMessage, messages []brain.Message) []napcat.Action {
+	if len(messages) == 0 {
+		return nil
+	}
+
+	actions := make([]napcat.Action, 0, len(messages))
+	for _, item := range brainMessagesToNapcatItems(messages) {
+		action, ok := napcat.NewSendMessageItemsAction(
+			message.MessageType,
+			message.UserID,
+			message.GroupID,
+			[]napcat.BrainMessageItem{item},
+		)
+		if !ok {
+			return nil
+		}
+		actions = append(actions, action)
+	}
+	return actions
 }
 
 func OutboxAction(item brain.OutboxItem) (napcat.Action, bool) {
