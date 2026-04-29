@@ -174,6 +174,17 @@ Start Postgres, Brain, and Gateway:
 docker compose up -d postgres brain-python gateway-go
 ```
 
+For low-resource servers, prefer the local systemd deployment. It keeps only
+`postgres` and `napcat` in Docker and runs Gateway, Brain, modules, renderer,
+and media service as host processes:
+
+```bash
+./scripts/install-local-systemd.sh
+./scripts/start-local-systemd.sh
+```
+
+中文说明见 [docs/local-systemd.zh-CN.md](docs/local-systemd.zh-CN.md)。
+
 Start everything managed by this repository, including module services, the
 Rust renderer, and NapCat:
 

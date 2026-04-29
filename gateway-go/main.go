@@ -22,7 +22,7 @@ var upgrader = websocket.Upgrader{
 }
 
 const writeWait = 10 * time.Second
-const gatewayBrainRequestTimeout = 5 * time.Second
+const gatewayBrainRequestTimeout = 10 * time.Second
 const outboxPollInterval = 3 * time.Second
 const outboxLeaseSeconds = 30
 const outboxPullLimit = 10
