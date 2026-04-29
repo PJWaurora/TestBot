@@ -315,11 +315,14 @@ RENDERER_INTERNAL_BASE_URL=http://renderer-rust:8020
 RENDERER_TIMEOUT=3
 ```
 
-启动核心、模块、media 和 renderer：
+启动核心、模块和 renderer：
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml -f docker-compose.media.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml up -d
 ```
+
+只有在你还要启用异步媒体下载，并且已经准备好 media service 仓库和配置时，
+再额外加上 `-f docker-compose.media.yml`。
 
 检查 renderer：
 
@@ -341,7 +344,7 @@ GET  /v1/assets/{id}.png
 
 - `bilibili.video`
 - `tsperson.status`
-- `weather.live`
+- `weather.forecast`
 - `generic.summary`
 
 renderer 会把 PNG 存到 `renderer-assets` Docker volume。图片 asset id 基于 SHA-256；带同一个 `idempotency_key` 的重复渲染会返回同一个 URL。

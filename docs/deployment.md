@@ -255,7 +255,7 @@ RENDERER_INTERNAL_BASE_URL=http://renderer-rust:8020
 RENDERER_TIMEOUT=3
 ```
 
-`WEATHER_AMAP_KEY` is required for live Amap weather queries. With
+`WEATHER_AMAP_KEY` is required for Amap weather queries. With
 `RENDERER_ENABLED=true` and the renderer overlay running, the Weather module can
 return rendered weather card images through the normal Brain/Gateway response
 contract.
@@ -341,11 +341,14 @@ RENDERER_INTERNAL_BASE_URL=http://renderer-rust:8020
 RENDERER_TIMEOUT=3
 ```
 
-Start core, modules, media, and renderer:
+Start core, modules, and renderer:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml -f docker-compose.media.yml up -d
+docker compose -f docker-compose.yml -f docker-compose.modules.yml -f docker-compose.render.yml up -d
 ```
+
+Add `-f docker-compose.media.yml` only when you also want the async media
+downloader and have the media service repository/config ready.
 
 Check renderer:
 
@@ -367,7 +370,7 @@ First templates:
 
 - `bilibili.video`
 - `tsperson.status`
-- `weather.live`
+- `weather.forecast`
 - `generic.summary`
 
 The renderer stores PNG assets in the `renderer-assets` Docker volume. Rendered
