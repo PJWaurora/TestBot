@@ -142,16 +142,16 @@ NAPCAT_WEBUI_PORT=6099
 
 ## Module Services
 
-Module mode adds Bilibili, TSPerson, and Weather as external HTTP services and
-registers them with Brain. Pixiv has a reserved compose entry, but it is kept
-behind a separate `docker-pixiv` profile so existing `docker-modules` startup
-does not require the new repo.
+Module mode adds Bilibili, TSPerson, Weather, and optionally Pixiv as external
+HTTP services and registers them with Brain. Pixiv is kept behind a separate
+`docker-pixiv` profile in Compose, while the low-resource local systemd
+deployment starts it as `testbot-module-pixiv` on `127.0.0.1:8014`.
 
 Root `.env`:
 
 ```env
 BRAIN_MODULE_SERVICE_DEFAULTS=bilibili=http://module-bilibili:8011,tsperson=http://module-tsperson:8012,weather=http://module-weather:8013
-# Optional Pixiv compose default after its repo is ready:
+# Compose-managed Pixiv:
 # BRAIN_MODULE_SERVICE_DEFAULTS=bilibili=http://module-bilibili:8011,tsperson=http://module-tsperson:8012,weather=http://module-weather:8013,pixiv=http://module-pixiv:8014
 BRAIN_MODULE_SERVICES=
 BRAIN_MODULE_TIMEOUT=20
@@ -187,9 +187,8 @@ module timeouts, connection failures, non-2xx responses, and invalid JSON are
 treated as no reply. Brain does not retry remote module calls, which avoids
 duplicate QQ messages.
 
-When you want Compose-managed Pixiv later, append
-`,pixiv=http://module-pixiv:8014` to `BRAIN_MODULE_SERVICE_DEFAULTS` and start
-the extra profile:
+For Compose-managed Pixiv, append `,pixiv=http://module-pixiv:8014` to
+`BRAIN_MODULE_SERVICE_DEFAULTS` and start the extra profile:
 
 ```bash
 docker compose \
@@ -541,8 +540,8 @@ For local Brain to call local modules, set:
 
 ```env
 BRAIN_MODULE_SERVICES=bilibili=http://127.0.0.1:8011,tsperson=http://127.0.0.1:8012,weather=http://127.0.0.1:8013
-# Optional Pixiv during local bring-up:
-# BRAIN_MODULE_SERVICES=pixiv=http://127.0.0.1:8014
+# Local systemd uses this full list:
+# BRAIN_MODULE_SERVICE_DEFAULTS=bilibili=http://127.0.0.1:8011,tsperson=http://127.0.0.1:8012,weather=http://127.0.0.1:8013,pixiv=http://127.0.0.1:8014
 ```
 
 ## Test Commands

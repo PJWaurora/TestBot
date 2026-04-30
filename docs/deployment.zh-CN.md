@@ -127,13 +127,13 @@ NAPCAT_WEBUI_PORT=6099
 
 ## 启动模块服务
 
-模块模式会额外启动 Bilibili、TSPerson 和 Weather 三个外部 HTTP 模块服务，并把它们注册到 Brain。Pixiv 的 compose 入口也已经预留，但放在单独的 `docker-pixiv` profile 后面，避免现有 `docker-modules` 启动依赖新仓库。
+模块模式会额外启动 Bilibili、TSPerson、Weather 和可选 Pixiv 外部 HTTP 模块服务，并把它们注册到 Brain。Pixiv 在 Compose 里仍放在单独的 `docker-pixiv` profile 后面；低配本地 systemd 部署会把它作为 `testbot-module-pixiv` 跑在 `127.0.0.1:8014`。
 
 root `.env`：
 
 ```env
 BRAIN_MODULE_SERVICE_DEFAULTS=bilibili=http://module-bilibili:8011,tsperson=http://module-tsperson:8012,weather=http://module-weather:8013
-# Pixiv 仓库就绪后，可选改成：
+# Compose 管理 Pixiv 时改成：
 # BRAIN_MODULE_SERVICE_DEFAULTS=bilibili=http://module-bilibili:8011,tsperson=http://module-tsperson:8012,weather=http://module-weather:8013,pixiv=http://module-pixiv:8014
 BRAIN_MODULE_SERVICES=
 BRAIN_MODULE_TIMEOUT=20
@@ -166,9 +166,8 @@ curl http://127.0.0.1:8000/tools
 
 Brain 会先应用群黑白名单策略，再调用远程模块的 `POST /handle`。模块超时、连接失败、非 2xx、非法 JSON 都会被当作 no reply，不会自动重试，避免 QQ 重复发消息。
 
-后续如果要把 Pixiv 一起交给 compose 管理，把
-`,pixiv=http://module-pixiv:8014` 追加到 `BRAIN_MODULE_SERVICE_DEFAULTS`，
-再加上额外 profile：
+如果要把 Pixiv 一起交给 compose 管理，把 `,pixiv=http://module-pixiv:8014`
+追加到 `BRAIN_MODULE_SERVICE_DEFAULTS`，再加上额外 profile：
 
 ```bash
 docker compose \
@@ -507,8 +506,8 @@ cargo run
 
 ```env
 BRAIN_MODULE_SERVICES=bilibili=http://127.0.0.1:8011,tsperson=http://127.0.0.1:8012,weather=http://127.0.0.1:8013
-# 临时接本地 Pixiv 时：
-# BRAIN_MODULE_SERVICES=pixiv=http://127.0.0.1:8014
+# 本地 systemd 会使用完整列表：
+# BRAIN_MODULE_SERVICE_DEFAULTS=bilibili=http://127.0.0.1:8011,tsperson=http://127.0.0.1:8012,weather=http://127.0.0.1:8013,pixiv=http://127.0.0.1:8014
 ```
 
 ## 测试命令

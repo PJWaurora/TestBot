@@ -13,6 +13,7 @@ Services:
   bilibili     systemd: testbot-module-bilibili
   ts           systemd: testbot-module-tsperson
   weather      systemd: testbot-module-weather
+  pixiv        systemd: testbot-module-pixiv
   render       systemd: testbot-renderer
   media        systemd: testbot-media
   compose      systemd: testbot-compose
@@ -43,6 +44,7 @@ systemd_unit_for() {
     bilibili) printf '%s\n' testbot-module-bilibili.service ;;
     ts|tsperson) printf '%s\n' testbot-module-tsperson.service ;;
     weather) printf '%s\n' testbot-module-weather.service ;;
+    pixiv) printf '%s\n' testbot-module-pixiv.service ;;
     renderer|render) printf '%s\n' testbot-renderer.service ;;
     media) printf '%s\n' testbot-media.service ;;
     compose) printf '%s\n' testbot-compose.service ;;
@@ -76,6 +78,7 @@ label_color() {
     bilibili) printf '\033[34m' ;;
     ts|tsperson) printf '\033[33m' ;;
     weather) printf '\033[32m' ;;
+    pixiv) printf '\033[95m' ;;
     render|renderer) printf '\033[96m' ;;
     media) printf '\033[31m' ;;
     napcat) printf '\033[92m' ;;
@@ -140,7 +143,7 @@ run_docker_logs() {
 }
 
 run_all_logs() {
-  local labels=(gateway brain bilibili ts weather render media napcat)
+  local labels=(gateway brain bilibili ts weather pixiv render media napcat)
   local pids=()
 
   for label in "${labels[@]}"; do

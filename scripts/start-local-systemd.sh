@@ -21,7 +21,7 @@ docker compose \
   -f "$ROOT_DIR/docker-compose.modules.yml" \
   -f "$ROOT_DIR/docker-compose.render.yml" \
   -f "$ROOT_DIR/docker-compose.media.yml" \
-  stop gateway-go brain-python module-bilibili module-tsperson module-weather renderer-rust testbot-media >/dev/null 2>&1 || true
+  stop gateway-go brain-python module-bilibili module-tsperson module-weather module-pixiv renderer-rust testbot-media >/dev/null 2>&1 || true
 
 echo "Starting local systemd services..."
 systemctl restart \
@@ -29,6 +29,7 @@ systemctl restart \
   testbot-module-bilibili.service \
   testbot-module-tsperson.service \
   testbot-module-weather.service \
+  testbot-module-pixiv.service \
   testbot-brain.service \
   testbot-media.service \
   testbot-gateway.service
@@ -39,6 +40,7 @@ systemctl --no-pager --plain status \
   testbot-module-bilibili.service \
   testbot-module-tsperson.service \
   testbot-module-weather.service \
+  testbot-module-pixiv.service \
   testbot-brain.service \
   testbot-media.service \
   testbot-gateway.service \

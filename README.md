@@ -70,10 +70,11 @@ curl http://localhost:8000/health
 
 The Brain service exposes tools through `GET /tools` and `POST /tools/call`. Chat requests sent to `POST /chat` are resolved by the deterministic command router first. By default, Brain core loads only the local fake echo module; `GET /tools` returns only `echo` unless remote module services are configured.
 
-Bilibili, TSPerson, and Weather are external HTTP module services, not default
-in-core Brain modules. Enable them through `docker-compose.modules.yml`. Pixiv
-has a reserved compose entry in the same overlay, but it stays behind a
-separate `docker-pixiv` profile so the existing module flow does not change.
+Bilibili, TSPerson, Weather, and Pixiv are external HTTP module services, not
+default in-core Brain modules. Enable the Docker-managed services through
+`docker-compose.modules.yml`; Pixiv stays behind the separate `docker-pixiv`
+profile in Compose. The low-resource local systemd deployment starts Pixiv by
+default on `127.0.0.1:8014`.
 
 `BRAIN_MODULE_SERVICE_DEFAULTS` is the compose-managed default module list.
 `BRAIN_MODULE_SERVICES` is a comma-separated list of extra or overriding
@@ -92,11 +93,10 @@ allow/block policy before calling `POST /handle` on the remote service with the
 existing `ChatRequest` JSON shape. Remote service failures, timeouts, non-2xx
 responses, and invalid JSON are logged and treated as no reply with no retries.
 
-To add the reserved Pixiv module once `testbot-module-pixiv` is ready, append
-`,pixiv=http://module-pixiv:8014` to `BRAIN_MODULE_SERVICE_DEFAULTS` and start
-the `docker-pixiv` profile. For a one-off local or remote Pixiv endpoint, put
-only the Pixiv override in `BRAIN_MODULE_SERVICES`, for example
-`pixiv=http://127.0.0.1:8014`.
+For Compose-managed Pixiv, append `,pixiv=http://module-pixiv:8014` to
+`BRAIN_MODULE_SERVICE_DEFAULTS` and start the `docker-pixiv` profile. For a
+one-off local or remote Pixiv endpoint, put only the Pixiv override in
+`BRAIN_MODULE_SERVICES`, for example `pixiv=http://127.0.0.1:8014`.
 
 `GET /tools` returns the local fake echo tool plus tools discovered from each remote module service's `GET /tools`. `POST /tools/call` forwards remote tool calls to the owning service by discovered tool name; remote call failures return `ToolResult(ok=false)`.
 
@@ -194,8 +194,8 @@ docker compose --profile docker-app up -d postgres brain-python gateway-go
 ```
 
 For low-resource servers, use the local systemd deployment. It keeps only
-`postgres` and `napcat` in Docker and runs Gateway, Brain, modules, renderer,
-and media service as host processes:
+`postgres` and `napcat` in Docker and runs Gateway, Brain, Bilibili, TSPerson,
+Weather, Pixiv, renderer, and media service as host processes:
 
 ```bash
 ./scripts/install-local-systemd.sh
@@ -258,16 +258,15 @@ this repository by default:
 ../testbot-module-pixiv
 ```
 
-Use `BILIBILI_MODULE_CONTEXT`, `TSPERSON_MODULE_CONTEXT`, and
-`WEATHER_MODULE_CONTEXT` in the root `.env` when the module repositories live
-elsewhere. `PIXIV_MODULE_CONTEXT` is reserved for the optional Pixiv profile.
+Use `BILIBILI_MODULE_CONTEXT`, `TSPERSON_MODULE_CONTEXT`,
+`WEATHER_MODULE_CONTEXT`, and `PIXIV_MODULE_CONTEXT` in the root `.env` when
+the module repositories live elsewhere.
 The overlay publishes module ports with `BILIBILI_MODULE_PORT`,
 `TSPERSON_MODULE_PORT`, and `WEATHER_MODULE_PORT`, defaulting to `8011`,
-`8012`, and `8013`; the reserved Pixiv profile uses `PIXIV_MODULE_PORT`,
-defaulting to `8014`.
+`8012`, and `8013`; the Pixiv profile uses `PIXIV_MODULE_PORT`, defaulting to
+`8014`.
 
-When the Pixiv module repository is ready, start it separately so existing
-`docker-modules` flows keep working unchanged:
+Start Pixiv in Docker by adding its explicit profile:
 
 ```bash
 docker compose \

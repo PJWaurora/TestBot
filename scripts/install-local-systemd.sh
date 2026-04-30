@@ -28,7 +28,7 @@ env_value() {
 }
 
 install_env() {
-  mkdir -p "$ETC_DIR" "$STATE_DIR/render-assets" "$STATE_DIR/media"
+  mkdir -p "$ETC_DIR" "$STATE_DIR/render-assets" "$STATE_DIR/media" "$STATE_DIR/pixiv-assets"
 
   local postgres_db postgres_user postgres_password outbox_token
   postgres_db="$(env_value POSTGRES_DB testbot)"
@@ -45,7 +45,7 @@ OUTBOX_TOKEN=${outbox_token}
 
 BRAIN_BASE_URL=http://127.0.0.1:8000
 PYTHON_BRAIN_URL=http://127.0.0.1:8000
-BRAIN_MODULE_SERVICE_DEFAULTS=bilibili=http://127.0.0.1:8011,tsperson=http://127.0.0.1:8012,weather=http://127.0.0.1:8013
+BRAIN_MODULE_SERVICE_DEFAULTS=bilibili=http://127.0.0.1:8011,tsperson=http://127.0.0.1:8012,weather=http://127.0.0.1:8013,pixiv=http://127.0.0.1:8014
 BRAIN_MODULE_SERVICES=
 BRAIN_MODULE_TIMEOUT=20
 
@@ -189,10 +189,30 @@ User=root
 [Install]
 WantedBy=multi-user.target'
 
+  write_unit testbot-module-pixiv '[Unit]
+Description=TestBot local Pixiv module
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/root/testbot-module-pixiv
+Environment=PIXIV_ASSET_BASE_URL=http://host.docker.internal:8014
+Environment=PIXIV_IMAGE_CACHE_DIR=/var/lib/testbot/pixiv-assets
+EnvironmentFile=/etc/testbot/local.env
+EnvironmentFile=-/root/TestBot/config/modules/pixiv.env
+ExecStart=/root/testbot-module-pixiv/.venv/bin/python -m uvicorn pixiv_module.main:app --host 0.0.0.0 --port 8014 --no-access-log
+Restart=always
+RestartSec=3
+User=root
+
+[Install]
+WantedBy=multi-user.target'
+
   write_unit testbot-brain '[Unit]
 Description=TestBot local Python brain
-After=network-online.target testbot-compose.service testbot-module-bilibili.service testbot-module-tsperson.service testbot-module-weather.service
-Wants=network-online.target testbot-compose.service testbot-module-bilibili.service testbot-module-tsperson.service testbot-module-weather.service
+After=network-online.target testbot-compose.service testbot-module-bilibili.service testbot-module-tsperson.service testbot-module-weather.service testbot-module-pixiv.service
+Wants=network-online.target testbot-compose.service testbot-module-bilibili.service testbot-module-tsperson.service testbot-module-weather.service testbot-module-pixiv.service
 
 [Service]
 Type=simple
@@ -248,6 +268,7 @@ WantedBy=multi-user.target'
     testbot-module-bilibili.service \
     testbot-module-tsperson.service \
     testbot-module-weather.service \
+    testbot-module-pixiv.service \
     testbot-brain.service \
     testbot-media.service \
     testbot-gateway.service >/dev/null
