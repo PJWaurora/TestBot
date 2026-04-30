@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"reflect"
 	"sync/atomic"
 	"testing"
 )
@@ -102,7 +103,8 @@ func TestPollOutboxOnceSendsActionAndAcks(t *testing.T) {
 	if !ok {
 		t.Fatalf("params type = %T, want SendGroupMessageParams", sentAction.Params)
 	}
-	if params.GroupID != 8 || params.Message != "queued" {
+	want := []napcat.OneBotMessageSegment{{Type: "text", Data: map[string]interface{}{"text": "queued"}}}
+	if params.GroupID != 8 || !reflect.DeepEqual(params.Message, want) {
 		t.Fatalf("params = %+v, want queued group message", params)
 	}
 	if ackCalls.Load() != 1 {

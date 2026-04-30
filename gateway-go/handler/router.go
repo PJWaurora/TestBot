@@ -215,6 +215,19 @@ func brainMessagesToNapcatActions(message normalizer.IncomingMessage, messages [
 		return nil
 	}
 
+	if isForwardMessageSet(messages) {
+		action, ok := napcat.NewSendForwardMessageAction(
+			message.MessageType,
+			message.UserID,
+			message.GroupID,
+			brainMessagesToNapcatItems(messages),
+		)
+		if !ok {
+			return nil
+		}
+		return []napcat.Action{action}
+	}
+
 	actions := make([]napcat.Action, 0, len(messages))
 	for _, item := range brainMessagesToNapcatItems(messages) {
 		action, ok := napcat.NewSendMessageItemsAction(
@@ -229,6 +242,21 @@ func brainMessagesToNapcatActions(message normalizer.IncomingMessage, messages [
 		actions = append(actions, action)
 	}
 	return actions
+}
+
+func isForwardMessageSet(messages []brain.Message) bool {
+	if len(messages) == 0 {
+		return false
+	}
+	if len(messages) == 1 && strings.EqualFold(strings.TrimSpace(messages[0].Type), "forward") {
+		return true
+	}
+	for _, message := range messages {
+		if !strings.EqualFold(strings.TrimSpace(message.Type), "node") {
+			return false
+		}
+	}
+	return true
 }
 
 func OutboxAction(item brain.OutboxItem) (napcat.Action, bool) {
