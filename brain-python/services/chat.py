@@ -4,6 +4,7 @@ from typing import Any
 from schemas import BrainJSONMessage, BrainMessage, BrainResponse, ChatRequest, ToolCall, ToolCallRequest
 from modules.base import ModuleContext, parse_command_invocation
 from modules.registry import default_registry
+from services.ai_runtime import build_ai_response
 from services.memory import handle_memory_command
 from services.persistence import safe_persist_incoming, safe_persist_response
 from services.tools import call_tool
@@ -43,6 +44,11 @@ def _build_chat_response(request: ChatRequest) -> BrainResponse:
             tool_calls=[ToolCall(name=tool_request.name, arguments=tool_request.arguments)],
             metadata={"planner": "fake"},
         )
+
+    if text:
+        ai_response = build_ai_response(request, text, context)
+        if ai_response is not None:
+            return ai_response
 
     return BrainResponse(handled=False, should_reply=False, metadata={"reason": "no_route"})
 

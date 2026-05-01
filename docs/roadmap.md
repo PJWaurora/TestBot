@@ -31,6 +31,19 @@ memory useful before adding more autonomy:
 - Group memory can be enabled or disabled with `/memory enable` and
   `/memory disable`.
 
+## AI Direction
+
+AI starts as an explicit, opt-in runtime layered on top of memory:
+
+- AI uses an OpenAI-compatible chat endpoint only when `AI_ENABLED=true`.
+- Group allow/block policy is separate from deterministic module policy.
+- `/ai`, `/chat`, and `/聊天` are explicit command triggers.
+- Mention triggers are available but still gated by `AI_ENABLED` and group
+  policy.
+- Reply triggers default off until Brain can prove the replied message belongs
+  to the bot.
+- Proactive AI remains disabled until a scheduler/cooldown layer exists.
+
 ## Active Batch
 
 1. Bilibili legacy behavior controls
