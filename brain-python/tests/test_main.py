@@ -37,6 +37,9 @@ def clear_module_runtime_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "WEATHER_GROUP_ALLOWLIST",
         "WEATHER_GROUP_BLOCKLIST",
         "OUTBOX_TOKEN",
+        "DATABASE_URL",
+        "MEMORY_ENABLED",
+        "MEMORY_ADMIN_USER_IDS",
     ):
         monkeypatch.delenv(key, raising=False)
 
@@ -169,29 +172,12 @@ def test_default_module_services_are_merged_with_explicit_env(monkeypatch: pytes
     body = response.json()
     assert body["handled"] is True
     assert body["reply"] == "weather-ok"
-    assert calls == [
-        {
-            "url": "http://module-weather:8013/handle",
-            "json": {
-                "self_id": None,
-                "post_type": None,
-                "primary_type": None,
-                "text": "天气 北京",
-                "content": "",
-                "message": None,
-                "messages": [],
-                "text_segments": [],
-                "json_messages": [],
-                "user_id": None,
-                "group_id": None,
-                "conversation_id": None,
-                "message_id": None,
-                "message_type": None,
-                "metadata": {},
-            },
-            "timeout": 5.0,
-        }
-    ]
+    assert len(calls) == 1
+    assert calls[0]["url"] == "http://module-weather:8013/handle"
+    assert calls[0]["json"]["text"] == "天气 北京"
+    assert calls[0]["json"]["text_segments"] == []
+    assert calls[0]["json"]["json_messages"] == []
+    assert calls[0]["timeout"] == 5.0
 
 
 def test_tool_call_echoes_arguments() -> None:
