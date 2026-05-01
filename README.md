@@ -184,6 +184,33 @@ group; deleted memories are soft-deleted. The intended retention policy is raw
 message history for 30 days and long-term memory until an admin forget command
 removes it.
 
+### OpenAI-Compatible AI Chat
+
+AI chat is disabled by default:
+
+```text
+AI_ENABLED=false
+AI_BASE_URL=
+AI_API_KEY=
+AI_MODEL=
+AI_COMMAND_ALIASES=ai,chat,聊天
+AI_GROUP_ALLOWLIST=
+AI_GROUP_BLOCKLIST=
+AI_MENTION_TRIGGER_ENABLED=true
+AI_REPLY_TRIGGER_ENABLED=false
+AI_PROACTIVE_ENABLED=false
+AI_PROACTIVE_GROUP_ALLOWLIST=
+```
+
+With `AI_ENABLED=false`, ordinary text remains silent unless a deterministic
+module handles it. When enabled and allowed by group policy, `/ai ...`, `/chat
+...`, or `/聊天 ...` call the configured `/v1/chat/completions` endpoint with
+recent messages and recalled long-term memory. Mention triggers are wired and
+reply triggers are off by default because a normalized QQ reply does not prove
+the original message belongs to the bot. Proactive chat env is reserved for a
+future scheduler/cooldown implementation and does not make every ordinary
+message call the LLM.
+
 Weather module runtime settings live in `config/modules/weather.env`:
 
 ```text

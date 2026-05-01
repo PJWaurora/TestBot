@@ -40,6 +40,13 @@ def clear_module_runtime_env(monkeypatch: pytest.MonkeyPatch) -> None:
         "DATABASE_URL",
         "MEMORY_ENABLED",
         "MEMORY_ADMIN_USER_IDS",
+        "AI_ENABLED",
+        "AI_BASE_URL",
+        "AI_API_KEY",
+        "AI_MODEL",
+        "AI_GROUP_ALLOWLIST",
+        "AI_GROUP_BLOCKLIST",
+        "AI_PROACTIVE_ENABLED",
     ):
         monkeypatch.delenv(key, raising=False)
 
