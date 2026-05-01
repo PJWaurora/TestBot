@@ -16,6 +16,21 @@ TestBot core stays small:
 - Renderer: Rust card renderer.
 - Media: async Bilibili download/cache service with Brain outbox delivery.
 
+## Memory Direction
+
+The next core milestone is memory-backed chat behavior. The first version makes
+memory useful before adding more autonomy:
+
+- Brain persists normalized messages and bot responses to Postgres.
+- Long-term memory supports group, user, relationship, and global scopes.
+- Long-term memory requires evidence message IDs and is permanent until an
+  admin forget command soft-deletes it.
+- Recent context comes from persisted messages; long-term recall starts with
+  keyword search and reserves `vector(1536)` embeddings for later semantic
+  recall.
+- Group memory can be enabled or disabled with `/memory enable` and
+  `/memory disable`.
+
 ## Active Batch
 
 1. Bilibili legacy behavior controls

@@ -31,6 +31,26 @@ class BrainJSONMessage(BaseModel):
     parsed: dict[str, Any] = Field(default_factory=dict)
 
 
+class BrainSender(BaseModel):
+    user_id: str | int | None = None
+    nickname: str = ""
+    card: str = ""
+    role: str = ""
+
+
+class BrainImage(BaseModel):
+    url: str = ""
+    file: str = ""
+    summary: str = ""
+    sub_type: str = ""
+    file_size: str = ""
+
+
+class BrainVideo(BaseModel):
+    url: str = ""
+    file: str = ""
+
+
 class ToolDefinition(BaseModel):
     name: str
     description: str
@@ -63,6 +83,7 @@ class BrainResponse(BaseModel):
 class ChatRequest(BaseModel):
     self_id: str | int | None = None
     post_type: str | None = None
+    sub_type: str | None = None
     primary_type: str | None = None
     text: str = ""
     content: str = ""
@@ -70,8 +91,18 @@ class ChatRequest(BaseModel):
     messages: list[BrainMessage] = Field(default_factory=list)
     text_segments: list[str] = Field(default_factory=list)
     json_messages: list[BrainJSONMessage] = Field(default_factory=list)
+    images: list[BrainImage] = Field(default_factory=list)
+    videos: list[BrainVideo] = Field(default_factory=list)
+    at_user_ids: list[str | int] = Field(default_factory=list)
+    at_all: bool = False
+    reply_to_message_id: str | int | None = None
+    unknown_types: list[str] = Field(default_factory=list)
+    segments: list[dict[str, Any]] = Field(default_factory=list)
     user_id: str | int | None = None
     group_id: str | int | None = None
+    group_name: str = ""
+    target_id: str | int | None = None
+    sender: BrainSender | None = None
     conversation_id: str | None = None
     message_id: str | int | None = None
     message_type: str | None = None

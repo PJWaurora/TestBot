@@ -143,6 +143,47 @@ PIXIV_COMMAND_PREFIXES
 Use comma, semicolon, or whitespace separated group IDs. Blocklists win over
 allowlists. Empty allowlists mean the module is allowed in all groups.
 
+### Message Persistence And Memory
+
+When `DATABASE_URL` is configured, Brain persists normalized incoming messages
+and generated bot responses to Postgres. This gives future AI and summary jobs
+a single source of recent group/private context while keeping Go Gateway
+stateless.
+Persistence failures are logged and treated as non-fatal so chat routing can
+continue.
+
+Run database migration `000004_memory` before enabling memory features. It adds
+long-term memory tables, memory extraction run tracking, per-group memory
+settings, and a `vector(1536)` embedding table for the first OpenAI-compatible
+embedding path.
+
+Memory recall is controlled by:
+
+```text
+MEMORY_ENABLED=true
+MEMORY_ADMIN_USER_IDS=
+```
+
+`MEMORY_ADMIN_USER_IDS` is a comma, semicolon, or whitespace separated list of
+QQ user IDs that may manage memory even if NapCat sender role is not
+`admin`/`owner`. Available admin commands:
+
+```text
+/memory status
+/memory search <keyword>
+/memory user <QQ>
+/memory forget <id>
+/memory forget-user <QQ>
+/memory forget-group
+/memory enable
+/memory disable
+```
+
+`/记忆` is accepted as an alias for `/memory`. Group memory can be disabled per
+group; deleted memories are soft-deleted. The intended retention policy is raw
+message history for 30 days and long-term memory until an admin forget command
+removes it.
+
 Weather module runtime settings live in `config/modules/weather.env`:
 
 ```text

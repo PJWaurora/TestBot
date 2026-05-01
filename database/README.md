@@ -6,6 +6,7 @@ golang-migrate naming convention:
 1. `000001_enable_pgvector.up.sql`
 2. `000002_core_chat_tables.up.sql`
 3. `000003_message_outbox.up.sql`
+4. `000004_memory.up.sql`
 
 Run migrations in numeric order. Rollbacks should use the matching `.down.sql`
 files in reverse numeric order.
@@ -18,11 +19,13 @@ For a fresh local database, run:
 psql "$DATABASE_URL" -f database/migrations/000001_enable_pgvector.up.sql
 psql "$DATABASE_URL" -f database/migrations/000002_core_chat_tables.up.sql
 psql "$DATABASE_URL" -f database/migrations/000003_message_outbox.up.sql
+psql "$DATABASE_URL" -f database/migrations/000004_memory.up.sql
 ```
 
 To roll back the initial schema:
 
 ```sh
+psql "$DATABASE_URL" -f database/migrations/000004_memory.down.sql
 psql "$DATABASE_URL" -f database/migrations/000003_message_outbox.down.sql
 psql "$DATABASE_URL" -f database/migrations/000002_core_chat_tables.down.sql
 psql "$DATABASE_URL" -f database/migrations/000001_enable_pgvector.down.sql
@@ -50,8 +53,29 @@ schema drift fails loudly.
 The pgvector migration uses `CREATE EXTENSION IF NOT EXISTS` so it is safe if
 the extension was already enabled by a previous setup step.
 
-## Embeddings
+## Chat persistence
 
-Embedding tables are intentionally not included yet. Add them after the
-embedding model and vector dimensions are chosen, so the vector column can be
-declared with the correct dimension.
+Migration `000002_core_chat_tables` creates the durable chat history used by
+Brain message persistence:
+
+- `conversations`
+- `message_events_raw`
+- `messages`
+- `bot_responses`
+
+When `DATABASE_URL` is set, Brain writes normalized incoming messages and bot
+responses into these tables. The Gateway still does not write to the database.
+
+## Memory
+
+Migration `000004_memory` adds the first memory schema:
+
+- `memory_items`: long-term memories with `group`, `user`, `relationship`, and
+  `global` scopes.
+- `memory_embeddings`: optional semantic vectors using `vector(1536)`.
+- `memory_runs`: batch extraction run audit records.
+- `memory_settings`: per-group memory enable/disable state.
+
+Memory deletes are soft deletes via `status='deleted'`. The intended production
+policy is raw chat history for 30 days and long-term memory until an admin
+forget command removes it.

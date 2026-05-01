@@ -4,16 +4,29 @@ from typing import Any
 from schemas import BrainJSONMessage, BrainMessage, BrainResponse, ChatRequest, ToolCall, ToolCallRequest
 from modules.base import ModuleContext, parse_command_invocation
 from modules.registry import default_registry
+from services.memory import handle_memory_command
+from services.persistence import safe_persist_incoming, safe_persist_response
 from services.tools import call_tool
 
 
 def build_chat_response(request: ChatRequest) -> BrainResponse:
+    persisted_message_id = safe_persist_incoming(request)
+    response = _build_chat_response(request)
+    safe_persist_response(persisted_message_id, response)
+    return response
+
+
+def _build_chat_response(request: ChatRequest) -> BrainResponse:
     text, context = _request_text_and_context(request)
     module_texts = _request_module_texts(request, text)
     if not text and not module_texts:
         return BrainResponse(handled=False, should_reply=False)
 
     for module_text in module_texts:
+        memory_response = handle_memory_command(request, module_text)
+        if memory_response is not None:
+            return memory_response
+
         module_response = default_registry.handle(module_text, context, request)
         if module_response is not None:
             return module_response
