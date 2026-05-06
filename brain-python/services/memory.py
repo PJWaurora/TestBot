@@ -4,7 +4,7 @@ import re
 import threading
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Protocol
 
 from modules.base import parse_command_invocation
 from schemas import BrainMessage, BrainResponse, ChatRequest, OutboxEnqueueRequest
@@ -16,6 +16,8 @@ logger = logging.getLogger(__name__)
 ADMIN_ROLES = {"admin", "owner"}
 DEFAULT_RECENT_LIMIT = 30
 DEFAULT_MEMORY_LIMIT = 8
+DEFAULT_KEYWORD_RECALL_LIMIT = 50
+DEFAULT_VECTOR_RECALL_LIMIT = 20
 VALID_MEMORY_TYPES = {"preference", "fact", "style", "relationship", "topic", "summary", "warning"}
 VALID_MEMORY_CLASSES = {"episodic", "semantic", "procedural", "affective", "social", "persona"}
 VALID_LIFECYCLE_STATUSES = {"weak", "confirmed", "reinforced", "stale", "contradicted", "archived"}
@@ -75,10 +77,28 @@ class MemoryRecord:
 class MemoryScore:
     total: float
     keyword_match: float
+    fts_rank: float
+    vector_similarity: float
     entity_relevance: float
     scope_relevance: float
     quality_score: float
     recency_weight: float
+    sources: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True)
+class MemoryCandidate:
+    record: MemoryRecord
+    sources: tuple[str, ...]
+    keyword_match: float = 0.0
+    fts_rank: float = 0.0
+    vector_similarity: float = 0.0
+
+
+class MemoryEmbeddingModule(Protocol):
+    def config_from_env(self) -> Any: ...
+
+    def embed_texts(self, texts: list[str], config: Any) -> list[list[float]]: ...
 
 
 class PostgresMemoryStore:
@@ -172,11 +192,45 @@ class PostgresMemoryStore:
         limit: int = 10,
         include_ineligible: bool = True,
     ) -> list[tuple[MemoryRecord, MemoryScore]]:
+        keywords = _keywords(text)
+        candidate_limit = max(limit, _env_int("MEMORY_KEYWORD_RECALL_LIMIT", DEFAULT_KEYWORD_RECALL_LIMIT))
+        candidates = self.keyword_candidates(
+            request,
+            text,
+            limit=candidate_limit,
+            include_ineligible=include_ineligible,
+        )
+        candidates.extend(
+            self.fts_candidates(
+                request,
+                text,
+                limit=candidate_limit,
+                include_ineligible=include_ineligible,
+            )
+        )
+        candidates.extend(_safe_vector_candidates(self, request, text, include_ineligible=include_ineligible))
+
+        merged = _merge_memory_candidates(candidates)
+        scored: list[tuple[MemoryRecord, MemoryScore]] = []
+        for candidate in merged:
+            record = candidate.record
+            if include_ineligible or recall_eligible(record):
+                scored.append((record, memory_score(record, request, keywords, candidate=candidate)))
+        scored.sort(key=lambda item: (item[1].total, item[0].quality_score, _timestamp(item[0].last_seen_at)), reverse=True)
+        return scored[:limit]
+
+    def keyword_candidates(
+        self,
+        request: ChatRequest,
+        text: str,
+        *,
+        limit: int = DEFAULT_KEYWORD_RECALL_LIMIT,
+        include_ineligible: bool = False,
+    ) -> list[MemoryCandidate]:
         group_id = _string_id(request.group_id)
         user_id = _string_id(request.user_id)
         keywords = _keywords(text)
         status_sql = "status <> 'deleted'" if include_ineligible else _recall_status_filter()
-        candidate_limit = max(limit, 50)
         if not keywords:
             rows = self._fetch_all(
                 f"""
@@ -187,7 +241,7 @@ class PostgresMemoryStore:
                 ORDER BY quality_score DESC, importance DESC, confidence DESC, last_seen_at DESC, id DESC
                 LIMIT %s
                 """,
-                (*_memory_scope_params(group_id, user_id), candidate_limit),
+                (*_memory_scope_params(group_id, user_id), limit),
             )
         else:
             clauses = " OR ".join(["content ILIKE %s" for _ in keywords])
@@ -202,16 +256,95 @@ class PostgresMemoryStore:
                 LIMIT %s
                 """,
                 tuple(f"%{keyword}%" for keyword in keywords)
-                + (*_memory_scope_params(group_id, user_id), candidate_limit),
+                + (*_memory_scope_params(group_id, user_id), limit),
             )
+        return [
+            MemoryCandidate(
+                record=_row_to_memory(row),
+                sources=("keyword",),
+                keyword_match=_keyword_match_score(str(row.get("content") or ""), keywords),
+            )
+            for row in rows
+        ]
 
-        scored: list[tuple[MemoryRecord, MemoryScore]] = []
-        for row in rows:
-            record = _row_to_memory(row)
-            if include_ineligible or recall_eligible(record):
-                scored.append((record, memory_score(record, request, keywords)))
-        scored.sort(key=lambda item: (item[1].total, item[0].quality_score, _timestamp(item[0].last_seen_at)), reverse=True)
-        return scored[:limit]
+    def fts_candidates(
+        self,
+        request: ChatRequest,
+        text: str,
+        *,
+        limit: int = DEFAULT_KEYWORD_RECALL_LIMIT,
+        include_ineligible: bool = False,
+    ) -> list[MemoryCandidate]:
+        query = str(text or "").strip()
+        if not query:
+            return []
+        group_id = _string_id(request.group_id)
+        user_id = _string_id(request.user_id)
+        status_sql = "status <> 'deleted'" if include_ineligible else _recall_status_filter()
+        rows = self._fetch_all(
+            f"""
+            SELECT *,
+                   ts_rank_cd(to_tsvector('simple', content), plainto_tsquery('simple', %s)) AS fts_rank
+            FROM memory_items
+            WHERE {status_sql}
+              AND to_tsvector('simple', content) @@ plainto_tsquery('simple', %s)
+              AND {_memory_scope_filter()}
+            ORDER BY fts_rank DESC, quality_score DESC, importance DESC, last_seen_at DESC, id DESC
+            LIMIT %s
+            """,
+            (query, query, *_memory_scope_params(group_id, user_id), limit),
+        )
+        return [
+            MemoryCandidate(
+                record=_row_to_memory(row),
+                sources=("fts",),
+                fts_rank=_clamp(_float_value(row.get("fts_rank"), 0.0)),
+            )
+            for row in rows
+        ]
+
+    def vector_candidates(
+        self,
+        request: ChatRequest,
+        query_embedding: list[float],
+        *,
+        model: str,
+        limit: int = DEFAULT_VECTOR_RECALL_LIMIT,
+        include_ineligible: bool = False,
+    ) -> list[MemoryCandidate]:
+        if not query_embedding or not model:
+            return []
+        group_id = _string_id(request.group_id)
+        user_id = _string_id(request.user_id)
+        status_sql = "mi.status <> 'deleted'" if include_ineligible else _recall_status_filter(alias="mi")
+        rows = self._fetch_all(
+            f"""
+            SELECT mi.*,
+                   GREATEST(0.0, LEAST(1.0, 1.0 - (me.embedding <=> %s::vector))) AS vector_similarity
+            FROM memory_embeddings me
+            JOIN memory_items mi ON mi.id = me.memory_id
+            WHERE me.embedding_model = %s
+              AND {status_sql}
+              AND {_memory_scope_filter(alias="mi")}
+            ORDER BY me.embedding <=> %s::vector, mi.quality_score DESC, mi.importance DESC, mi.id DESC
+            LIMIT %s
+            """,
+            (
+                _vector_literal(query_embedding),
+                model,
+                *_memory_scope_params(group_id, user_id),
+                _vector_literal(query_embedding),
+                limit,
+            ),
+        )
+        return [
+            MemoryCandidate(
+                record=_row_to_memory(row),
+                sources=("vector",),
+                vector_similarity=_clamp(_float_value(row.get("vector_similarity"), 0.0)),
+            )
+            for row in rows
+        ]
 
     def recent_messages(self, request: ChatRequest, *, limit: int = DEFAULT_RECENT_LIMIT) -> list[dict[str, Any]]:
         conversation_type, external_id = _conversation_key(request)
@@ -796,6 +929,76 @@ class PostgresMemoryStore:
         )
         return len(rows)
 
+    def count_memory_embeddings(self, *, model: str = "") -> int:
+        if model:
+            rows = self._fetch_all(
+                "SELECT count(*) AS count FROM memory_embeddings WHERE embedding_model = %s",
+                (model,),
+            )
+        else:
+            rows = self._fetch_all("SELECT count(*) AS count FROM memory_embeddings", ())
+        return int(rows[0]["count"]) if rows else 0
+
+    def count_memories_missing_embeddings(self, *, model: str, group_id: str = "") -> int:
+        rows = self._fetch_all(
+            f"""
+            SELECT count(*) AS count
+            FROM memory_items mi
+            WHERE {_recall_status_filter(alias="mi")}
+              AND (%s = '' OR mi.group_id = %s OR mi.scope = 'global')
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM memory_embeddings me
+                  WHERE me.memory_id = mi.id
+                    AND me.embedding_model = %s
+              )
+            """,
+            (group_id, group_id, model),
+        )
+        return int(rows[0]["count"]) if rows else 0
+
+    def list_memories_missing_embeddings(self, *, model: str, limit: int, group_id: str = "") -> list[MemoryRecord]:
+        rows = self._fetch_all(
+            f"""
+            SELECT mi.*
+            FROM memory_items mi
+            WHERE {_recall_status_filter(alias="mi")}
+              AND (%s = '' OR mi.group_id = %s OR mi.scope = 'global')
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM memory_embeddings me
+                  WHERE me.memory_id = mi.id
+                    AND me.embedding_model = %s
+              )
+            ORDER BY mi.quality_score DESC, mi.importance DESC, mi.last_seen_at DESC, mi.id DESC
+            LIMIT %s
+            """,
+            (group_id, group_id, model, limit),
+        )
+        return [_row_to_memory(row) for row in rows]
+
+    def upsert_memory_embedding(
+        self,
+        memory_id: int,
+        *,
+        model: str,
+        content_hash: str,
+        embedding: list[float],
+    ) -> None:
+        self._fetch_all(
+            """
+            INSERT INTO memory_embeddings (memory_id, embedding, embedding_model, content_hash, updated_at)
+            VALUES (%s, %s::vector, %s, %s, now())
+            ON CONFLICT (memory_id, embedding_model)
+            DO UPDATE SET
+                embedding = EXCLUDED.embedding,
+                content_hash = EXCLUDED.content_hash,
+                updated_at = now()
+            RETURNING id
+            """,
+            (memory_id, _vector_literal(embedding), model, content_hash),
+        )
+
     def _fetch_all(self, sql: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
         if not self.database_url:
             raise MemoryConfigurationError("DATABASE_URL is not configured")
@@ -905,6 +1108,9 @@ def _handle_admin_command(store: PostgresMemoryStore, request: ChatRequest, argu
     if command == "debug" and len(parts) >= 3 and parts[1].lower() == "recall":
         return _debug_recall_response(store, request, " ".join(parts[2:]))
 
+    if command == "embedding":
+        return _handle_embedding_command(store, request, parts[1:])
+
     if command == "lifecycle":
         return _handle_lifecycle_command(store, request, parts[1:])
 
@@ -959,7 +1165,7 @@ def _handle_admin_command(store: PostgresMemoryStore, request: ChatRequest, argu
         )
 
     return _text_response(
-        "记忆命令：/memory status | show <id> | search <关键词> [--status ...] | user <QQ> | lifecycle status|confirm|archive|stale|decay | debug recall <文本> | extract [数量] | forget <id> | forget-user <QQ> | forget-group | enable | disable",
+        "记忆命令：/memory status | show <id> | search <关键词> [--status ...] | user <QQ> | lifecycle status|confirm|archive|stale|decay | debug recall <文本> | embedding status|index [数量] | extract [数量] | forget <id> | forget-user <QQ> | forget-group | enable | disable",
         {"module": "memory", "command": "help"},
     )
 
@@ -1013,6 +1219,72 @@ def _handle_lifecycle_command(store: PostgresMemoryStore, request: ChatRequest, 
     )
 
 
+def _handle_embedding_command(store: PostgresMemoryStore, request: ChatRequest, parts: list[str]) -> BrainResponse:
+    action = parts[0].lower() if parts else "status"
+    group_id = _string_id(request.group_id)
+
+    if action == "status":
+        module = _memory_embedding_module()
+        if module is None:
+            return _text_response(
+                "Embedding 模块不可用。",
+                {"module": "memory", "command": "embedding", "action": "status", "available": False},
+            )
+        config, error = _memory_embedding_config(module)
+        if config is None:
+            return _text_response(
+                f"Embedding 配置不可用：{error}",
+                {
+                    "module": "memory",
+                    "command": "embedding",
+                    "action": "status",
+                    "available": True,
+                    "configured": False,
+                },
+            )
+        model = _embedding_config_value(config, "model")
+        enabled = bool(_embedding_config_value(config, "enabled", False))
+        indexed = store.count_memory_embeddings(model=model)
+        missing = store.count_memories_missing_embeddings(model=model, group_id=group_id) if model else 0
+        return _text_response(
+            f"Embedding 状态：{'启用' if enabled else '禁用'}，model={model or '-'}，indexed={indexed}，missing={missing}",
+            {
+                "module": "memory",
+                "command": "embedding",
+                "action": "status",
+                "available": True,
+                "configured": True,
+                "enabled": enabled,
+                "model": model,
+                "indexed": indexed,
+                "missing": missing,
+            },
+        )
+
+    if action == "index":
+        limit = _embedding_index_limit_arg(parts[1:])
+        if limit is None:
+            return _text_response(
+                "数量必须是 1 到 500 之间的整数。",
+                {"module": "memory", "command": "embedding", "action": "index", "error": "invalid_limit"},
+            )
+        result = _index_missing_memory_embeddings(store, group_id=group_id, limit=limit)
+        if result.get("error"):
+            return _text_response(
+                f"Embedding 索引不可用：{result['error']}",
+                {"module": "memory", "command": "embedding", "action": "index", **result},
+            )
+        return _text_response(
+            f"Embedding 索引完成：扫描 {result['scanned']} 条，写入 {result['indexed']} 条，失败 {result['failed']} 条。",
+            {"module": "memory", "command": "embedding", "action": "index", **result},
+        )
+
+    return _text_response(
+        "用法：/memory embedding status|index [limit]",
+        {"module": "memory", "command": "embedding", "error": "unknown_action"},
+    )
+
+
 def _lifecycle_counts_response(counts: dict[str, int]) -> BrainResponse:
     ordered = ["weak", "confirmed", "reinforced", "stale", "contradicted", "archived"]
     lines = ["记忆生命周期："]
@@ -1051,9 +1323,11 @@ def _debug_recall_response(store: PostgresMemoryStore, request: ChatRequest, tex
     lines = ["召回调试："]
     for record, score in scored:
         eligible = "yes" if recall_eligible(record) else "no"
+        sources = ",".join(score.sources) if score.sources else "-"
         lines.append(
             f"#{record.id} score={score.total:.2f} eligible={eligible} lifecycle={record.lifecycle_status} "
-            f"keyword={score.keyword_match:.2f} entity={score.entity_relevance:.2f} scope={score.scope_relevance:.2f} "
+            f"sources={sources} keyword={score.keyword_match:.2f} fts={score.fts_rank:.2f} vector={score.vector_similarity:.2f} "
+            f"entity={score.entity_relevance:.2f} scope={score.scope_relevance:.2f} "
             f"quality={score.quality_score:.2f} recency={score.recency_weight:.2f} {record.content}"
         )
     return _text_response(
@@ -1107,11 +1381,23 @@ def _run_extract_background(group_id: str, limit: int | None, config: dict[str, 
     store = PostgresMemoryStore.from_env()
     try:
         result = memory_extractor.extract_group_memories(store, group_id, limit=limit, config=config)
+        embedding_result: dict[str, Any] = {}
+        memory_ids = list(getattr(result, "memory_ids", []) or [])
+        if memory_ids:
+            embedding_result = _index_missing_memory_embeddings(
+                store,
+                group_id=group_id,
+                limit=max(1, min(len(memory_ids), _env_int("MEMORY_EMBEDDING_BATCH_SIZE", 32))),
+            )
         text = (
             f"记忆抽取完成：run #{result.run_id}，新增 {result.inserted_count} 条，"
             f"更新 {result.updated_count} 条，跳过 {result.skipped_count} 条。"
         )
-        _enqueue_memory_extract_notice(group_id, text, {"job_id": job_id, "run_id": result.run_id, "status": "succeeded"})
+        metadata: dict[str, Any] = {"job_id": job_id, "run_id": result.run_id, "status": "succeeded"}
+        if embedding_result and not embedding_result.get("error"):
+            metadata["embedding_indexed"] = embedding_result.get("indexed", 0)
+            metadata["embedding_failed"] = embedding_result.get("failed", 0)
+        _enqueue_memory_extract_notice(group_id, text, metadata)
     except memory_extractor.MemoryExtractorNoMessagesError:
         _enqueue_memory_extract_notice(group_id, "记忆抽取结束：没有可抽取的群聊文本消息。", {"job_id": job_id, "status": "no_messages"})
     except memory_extractor.MemoryExtractorError as exc:
@@ -1208,23 +1494,35 @@ def _extract_limit_arg(parts: list[str]) -> int | None:
     return value
 
 
+def _embedding_index_limit_arg(parts: list[str]) -> int | None:
+    if not parts:
+        return _env_int("MEMORY_EMBEDDING_BATCH_SIZE", 32)
+    if not parts[0].isdigit():
+        return None
+    value = int(parts[0])
+    if value < 1 or value > 500:
+        return None
+    return value
+
+
 def _memory_extract_job_id(group_id: str, limit: int | None) -> str:
     suffix = str(limit) if limit else "default"
     return f"memory-extract:{group_id}:{suffix}"
 
 
-def _memory_scope_filter() -> str:
-    return """
+def _memory_scope_filter(alias: str = "") -> str:
+    prefix = f"{alias}." if alias else ""
+    return f"""
               (
-                scope = 'global'
-                OR (%s <> '' AND scope = 'group' AND group_id = %s)
-                OR (%s <> '' AND scope = 'user' AND group_id = %s AND %s <> '' AND user_id = %s)
+                {prefix}scope = 'global'
+                OR (%s <> '' AND {prefix}scope = 'group' AND {prefix}group_id = %s)
+                OR (%s <> '' AND {prefix}scope = 'user' AND {prefix}group_id = %s AND %s <> '' AND {prefix}user_id = %s)
                 OR (
                     %s <> ''
-                    AND scope = 'relationship'
-                    AND group_id = %s
+                    AND {prefix}scope = 'relationship'
+                    AND {prefix}group_id = %s
                     AND %s <> ''
-                    AND (user_id = %s OR target_user_id = %s)
+                    AND ({prefix}user_id = %s OR {prefix}target_user_id = %s)
                 )
               )
     """
@@ -1259,10 +1557,11 @@ def _memory_status_filter(status: str) -> tuple[str, tuple[Any, ...]]:
     return _recall_status_filter(), ()
 
 
-def _recall_status_filter() -> str:
+def _recall_status_filter(alias: str = "") -> str:
+    prefix = f"{alias}." if alias else ""
     if not _recall_lifecycle_filter_enabled():
-        return "status = 'active' AND COALESCE(lifecycle_status, 'confirmed') <> 'archived'"
-    return "status = 'active' AND COALESCE(lifecycle_status, 'confirmed') IN ('confirmed', 'reinforced')"
+        return f"{prefix}status = 'active' AND COALESCE({prefix}lifecycle_status, 'confirmed') <> 'archived'"
+    return f"{prefix}status = 'active' AND COALESCE({prefix}lifecycle_status, 'confirmed') IN ('confirmed', 'reinforced')"
 
 
 def class_for_type(memory_type: str) -> str:
@@ -1309,25 +1608,143 @@ def compute_quality_score(record: MemoryRecord) -> float:
     return round(_clamp(score), 4)
 
 
-def memory_score(record: MemoryRecord, request: ChatRequest, keywords: list[str]) -> MemoryScore:
-    keyword_match = _keyword_match_score(record.content, keywords)
+def _merge_memory_candidates(candidates: list[MemoryCandidate]) -> list[MemoryCandidate]:
+    merged: dict[int, MemoryCandidate] = {}
+    for candidate in candidates:
+        existing = merged.get(candidate.record.id)
+        if existing is None:
+            merged[candidate.record.id] = candidate
+            continue
+        sources = tuple(dict.fromkeys((*existing.sources, *candidate.sources)))
+        merged[candidate.record.id] = MemoryCandidate(
+            record=_preferred_candidate_record(existing.record, candidate.record),
+            sources=sources,
+            keyword_match=max(existing.keyword_match, candidate.keyword_match),
+            fts_rank=max(existing.fts_rank, candidate.fts_rank),
+            vector_similarity=max(existing.vector_similarity, candidate.vector_similarity),
+        )
+    return list(merged.values())
+
+
+def _preferred_candidate_record(left: MemoryRecord, right: MemoryRecord) -> MemoryRecord:
+    if right.quality_score > left.quality_score:
+        return right
+    if right.quality_score == left.quality_score and _timestamp(right.last_seen_at) > _timestamp(left.last_seen_at):
+        return right
+    return left
+
+
+def _safe_vector_candidates(
+    store: PostgresMemoryStore,
+    request: ChatRequest,
+    text: str,
+    *,
+    include_ineligible: bool,
+) -> list[MemoryCandidate]:
+    if not _env_bool("MEMORY_VECTOR_RECALL_ENABLED", False):
+        return []
+    module = _memory_embedding_module()
+    if module is None:
+        return []
+    config, error = _memory_embedding_config(module)
+    if config is None:
+        logger.info("memory vector recall skipped: %s", error)
+        return []
+    if not bool(_embedding_config_value(config, "enabled", False)):
+        return []
+    model = _embedding_config_value(config, "model")
+    if not model:
+        return []
+    try:
+        embeddings = module.embed_texts([text], config)
+        query_embedding = embeddings[0] if embeddings else []
+        return store.vector_candidates(
+            request,
+            query_embedding,
+            model=model,
+            limit=_env_int("MEMORY_VECTOR_RECALL_LIMIT", DEFAULT_VECTOR_RECALL_LIMIT),
+            include_ineligible=include_ineligible,
+        )
+    except Exception as exc:
+        logger.warning("memory vector recall skipped: %s", exc)
+        return []
+
+
+def _index_missing_memory_embeddings(store: PostgresMemoryStore, *, group_id: str, limit: int) -> dict[str, Any]:
+    module = _memory_embedding_module()
+    if module is None:
+        return {"error": "embedding module unavailable", "scanned": 0, "indexed": 0, "failed": 0}
+    config, error = _memory_embedding_config(module)
+    if config is None:
+        return {"error": str(error), "scanned": 0, "indexed": 0, "failed": 0}
+    if not bool(_embedding_config_value(config, "enabled", False)):
+        return {"error": "MEMORY_EMBEDDING_ENABLED is false", "scanned": 0, "indexed": 0, "failed": 0}
+    model = _embedding_config_value(config, "model")
+    if not model:
+        return {"error": "MEMORY_EMBEDDING_MODEL is not configured", "scanned": 0, "indexed": 0, "failed": 0}
+    try:
+        records = store.list_memories_missing_embeddings(model=model, limit=limit, group_id=group_id)
+    except MemoryError as exc:
+        return {"error": str(exc), "scanned": 0, "indexed": 0, "failed": 0, "model": model}
+    if not records:
+        return {"scanned": 0, "indexed": 0, "failed": 0, "model": model}
+
+    indexed = 0
+    failed = 0
+    try:
+        embeddings = module.embed_texts([record.content for record in records], config)
+    except Exception as exc:
+        logger.warning("memory embedding batch failed: %s", exc)
+        return {"error": str(exc), "scanned": len(records), "indexed": 0, "failed": len(records), "model": model}
+
+    for record, embedding in zip(records, embeddings, strict=False):
+        try:
+            store.upsert_memory_embedding(
+                record.id,
+                model=model,
+                content_hash=_memory_content_hash(record),
+                embedding=embedding,
+            )
+            indexed += 1
+        except MemoryError as exc:
+            failed += 1
+            logger.warning("memory embedding upsert failed for memory %s: %s", record.id, exc)
+    failed += max(0, len(records) - len(embeddings))
+    return {"scanned": len(records), "indexed": indexed, "failed": failed, "model": model}
+
+
+def memory_score(
+    record: MemoryRecord,
+    request: ChatRequest,
+    keywords: list[str],
+    *,
+    candidate: MemoryCandidate | None = None,
+) -> MemoryScore:
+    keyword_match = candidate.keyword_match if candidate is not None else _keyword_match_score(record.content, keywords)
+    fts_rank = candidate.fts_rank if candidate is not None else 0.0
+    vector_similarity = candidate.vector_similarity if candidate is not None else 0.0
     entity_relevance = _entity_relevance_score(record, request)
     scope_relevance = _scope_relevance_score(record, request)
     recency_weight = _recency_weight(record.last_seen_at)
     total = _clamp(
-        keyword_match * 0.30
-        + entity_relevance * 0.20
-        + scope_relevance * 0.15
-        + record.quality_score * 0.25
-        + recency_weight * 0.10
+        keyword_match * 0.18
+        + fts_rank * 0.12
+        + vector_similarity * 0.25
+        + entity_relevance * 0.18
+        + scope_relevance * 0.12
+        + record.quality_score * 0.10
+        + recency_weight * 0.05
     )
     return MemoryScore(
         total=round(total, 4),
         keyword_match=round(keyword_match, 4),
+        fts_rank=round(fts_rank, 4),
+        vector_similarity=round(vector_similarity, 4),
         entity_relevance=round(entity_relevance, 4),
         scope_relevance=round(scope_relevance, 4),
         quality_score=round(record.quality_score, 4),
         recency_weight=round(recency_weight, 4),
+        sources=candidate.sources if candidate is not None else (),
     )
 
 
@@ -1487,6 +1904,56 @@ def _env_bool(key: str, default: bool) -> bool:
     if not raw:
         return default
     return raw not in {"0", "false", "no", "off"}
+
+
+def _env_int(key: str, default: int) -> int:
+    raw = os.getenv(key, "").strip()
+    if not raw:
+        return default
+    try:
+        return int(raw)
+    except ValueError:
+        return default
+
+
+def _memory_embedding_module() -> MemoryEmbeddingModule | None:
+    try:
+        from services import memory_embedding
+    except Exception as exc:
+        logger.info("memory embedding module unavailable: %s", exc)
+        return None
+    return memory_embedding
+
+
+def _memory_embedding_config(module: MemoryEmbeddingModule) -> tuple[Any | None, str]:
+    try:
+        config = module.config_from_env()
+    except Exception as exc:
+        return None, str(exc)
+    model = _embedding_config_value(config, "model")
+    enabled = bool(_embedding_config_value(config, "enabled", False))
+    if enabled and not model:
+        return None, "MEMORY_EMBEDDING_MODEL is not configured"
+    return config, ""
+
+
+def _embedding_config_value(config: Any, key: str, default: Any = "") -> Any:
+    if isinstance(config, dict):
+        return config.get(key, default)
+    return getattr(config, key, default)
+
+
+def _vector_literal(values: list[float]) -> str:
+    return "[" + ",".join(str(float(value)) for value in values) + "]"
+
+
+def _memory_content_hash(record: MemoryRecord) -> str:
+    module = _memory_embedding_module()
+    if module is not None and hasattr(module, "content_hash"):
+        return str(module.content_hash(record.content))
+    import hashlib
+
+    return hashlib.sha256(record.content.encode("utf-8")).hexdigest()
 
 
 def _keywords(text: str) -> list[str]:

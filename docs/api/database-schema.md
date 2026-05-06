@@ -15,6 +15,7 @@ memory embeddings.
 | `000003_message_outbox` | Creates async delivery queue table. |
 | `000004_memory` | Creates memory items, memory embeddings, extraction runs, and memory settings. |
 | `000005_memory_lifecycle` | Adds memory class, lifecycle state, quality scoring fields, and lifecycle recall/debug indexes. |
+| `000006_memory_embedding_recall` | Adds embedding freshness metadata, embedding uniqueness, and vector recall index. |
 
 ## Extension
 
@@ -255,13 +256,17 @@ Vector embeddings for memory similarity search.
 | `memory_id` | `BIGINT` | Required, references `memory_items(id)` with cascade delete. |
 | `embedding` | `vector(1536)` | Embedding vector. |
 | `embedding_model` | `TEXT` | Model name used to create the embedding. |
+| `content_hash` | `TEXT` | Hash of the memory content used to detect stale embeddings. Added by `000006_memory_embedding_recall`. |
 | `created_at` | `TIMESTAMPTZ` | Default `now()`. |
+| `updated_at` | `TIMESTAMPTZ` | Last embedding refresh time. Added by `000006_memory_embedding_recall`. |
 
 Indexes:
 
 | Name | Columns |
 | --- | --- |
 | `memory_embeddings_memory_id_idx` | `memory_id` |
+| `memory_embeddings_memory_model_unique_idx` | Unique `(memory_id, embedding_model)` |
+| `memory_embeddings_embedding_ivfflat_idx` | `embedding vector_cosine_ops` using ivfflat |
 
 ## `memory_runs`
 

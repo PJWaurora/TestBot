@@ -201,6 +201,11 @@ memory lifecycle/admin/debug contract, see [Memory Lifecycle API](memory-api.md)
 During rollout, `MEMORY_RECALL_LIFECYCLE_FILTER_ENABLED=false` temporarily
 loosens recall to active, non-archived lifecycle rows.
 
+When Phase 2 vector recall is enabled, `recall_context()` can combine keyword,
+FTS, and embedding candidates before reranking. AI runtime does not call the
+embedding endpoint directly; it only consumes the final memory context returned
+by the memory service.
+
 If recall fails, Brain logs the failure and continues with empty memory context.
 
 Context is put in a `user` role message and explicitly labeled as

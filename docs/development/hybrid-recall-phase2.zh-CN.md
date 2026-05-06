@@ -1,11 +1,11 @@
 # Hybrid Recall Phase 2 实施规格
 
-> Version: 0.1  
+> Version: 0.2
 > Language: zh-CN  
 > Owner: Brain / Memory Engine  
 > Scope: Phase 2 hybrid recall，让 AI 不只靠关键词召回 memory。  
 > Depends on: [Memory Quality Phase 1](memory-quality-phase1.zh-CN.md)、[Memory Lifecycle API](../api/memory-api.md)。  
-> Status: 设计阶段，建议作为 Phase 1 后的下一批实现。
+> Status: 首版实现已落地；后续重点是上线观察、调权重、补真实数据库集成测试。
 
 ---
 
@@ -505,19 +505,19 @@ brain-python/.venv/bin/python -m pytest \
 
 ## 15. 最小完成清单
 
-- [ ] `memory_embedding.py`。
-- [ ] `000006_memory_embedding_recall` migration。
-- [ ] embedding env 写入 `.env.example` 和 docs。
-- [ ] `/memory embedding status`。
-- [ ] `/memory embedding index [limit]`。
-- [ ] extract 后 best-effort 写 embedding。
-- [ ] FTS candidates。
-- [ ] vector candidates。
-- [ ] candidate merge by memory ID。
-- [ ] `HybridMemoryScore`。
-- [ ] `debug recall` 输出 source/score breakdown。
-- [ ] vector failure fallback。
-- [ ] 单元测试覆盖 config/client/store/rerank/debug。
+- [x] `memory_embedding.py`。
+- [x] `000006_memory_embedding_recall` migration。
+- [x] embedding env 写入 `.env.example` 和 docs。
+- [x] `/memory embedding status`。
+- [x] `/memory embedding index [limit]`。
+- [x] extract 后 best-effort 写 embedding。
+- [x] FTS candidates。
+- [x] vector candidates。
+- [x] candidate merge by memory ID。
+- [x] `HybridMemoryScore`。
+- [x] `debug recall` 输出 source/score breakdown。
+- [x] vector failure fallback。
+- [x] 单元测试覆盖 config/client/store/rerank/debug。
 
 ---
 

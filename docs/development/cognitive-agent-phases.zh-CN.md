@@ -2,7 +2,7 @@
 
 > Language: zh-CN  
 > Purpose: 把认知型 Agent 愿景拆成可推进阶段。  
-> Status: Phase 1 已完成首版实现；Phase 2 已有详细实施规格；Phase 3-8 是阶段级设计，进入实现前再展开成工程规格。
+> Status: Phase 1 和 Phase 2 已完成首版实现；Phase 3-8 是阶段级设计，进入实现前再展开成工程规格。
 
 ---
 
@@ -84,8 +84,8 @@ Phase 8  Proactive AI
 
 状态：
 
-- 已拆成详细实施规格：[Hybrid Recall Phase 2](hybrid-recall-phase2.zh-CN.md)。
-- 建议下一步先实现 embedding config/client 和 `000006_memory_embedding_recall` migration，再接入 vector recall。
+- 首版实现已落地，详细记录见 [Hybrid Recall Phase 2](hybrid-recall-phase2.zh-CN.md)。
+- 后续应先用真实 memory 数据观察 `debug recall`，再调权重和阈值。
 
 核心设计：
 
