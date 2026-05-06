@@ -28,6 +28,7 @@
 | [认知型群聊 Agent 架构愿景](development/TestBot_Cognitive_Agent_Architecture_zh_CN.md) | 长期 Agent 的目标架构；这是 vision，不代表当前全部已实现。 |
 | [Cognitive Agent 分阶段设计](development/cognitive-agent-phases.zh-CN.md) | Phase 1-8 的阶段边界、依赖、非目标和验收口径。 |
 | [Memory Quality Phase 1 实施规格](development/memory-quality-phase1.zh-CN.md) | 已实现 Phase 1 memory lifecycle/quality 的工程规格、状态机、迁移、命令/API 和测试计划。 |
+| [Hybrid Recall Phase 2 实施规格](development/hybrid-recall-phase2.zh-CN.md) | 下一阶段 hybrid recall 的 embedding 写入、向量召回、候选合并、rerank、debug 和 rollout 计划。 |
 
 ## 核心服务 API
 
@@ -76,6 +77,7 @@
 | 配置或调试 AI 回复 | [AI Runtime API](api/ai-runtime-api.md)、[AI 与记忆整体设计计划](overview/ai-memory-plan.zh-CN.md) |
 | 规划认知型 Agent 阶段 | [Cognitive Agent 分阶段设计](development/cognitive-agent-phases.zh-CN.md)、[认知型群聊 Agent 架构愿景](development/TestBot_Cognitive_Agent_Architecture_zh_CN.md) |
 | 调试或扩展 memory lifecycle | [Memory Lifecycle API](api/memory-api.md)、[Memory Quality Phase 1 实施规格](development/memory-quality-phase1.zh-CN.md) |
+| 实现 hybrid recall / embedding recall | [Hybrid Recall Phase 2 实施规格](development/hybrid-recall-phase2.zh-CN.md)、[Memory Lifecycle API](api/memory-api.md) |
 | 改 merged-forward 或 forward 回复 | [Gateway API](api/gateway-api.md)、[Brain API](api/brain-api.md)、[Pixiv Module API](modules/pixiv-module-api.md) |
 | 调试异步视频发送 | [Media Service API](services/media-service-api.md)、[Brain API](api/brain-api.md)、[Gateway API](api/gateway-api.md) |
 | 调试卡片图片渲染 | [Renderer Service API](services/renderer-service-api.md)、对应功能模块 API |
