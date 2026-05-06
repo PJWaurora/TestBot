@@ -497,7 +497,10 @@ type Response struct {
 	Reply       string     `json:"reply,omitempty"`
 	ToolCalls   []ToolCall `json:"tool_calls,omitempty"`
 	JobID       string     `json:"job_id,omitempty"`
+	Metadata    Metadata   `json:"metadata,omitempty"`
 }
+
+type Metadata map[string]interface{}
 
 type Message struct {
 	Type    string                 `json:"type,omitempty"`

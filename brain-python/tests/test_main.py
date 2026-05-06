@@ -8,7 +8,7 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from main import QuietAccessLogFilter, app
+from main import QuietAccessLogFilter, app, configure_application_logging
 from schemas import BrainMessage, OutboxEnqueueRequest, OutboxItem
 from services.outbox import _validate_messages
 
@@ -66,6 +66,19 @@ def test_access_log_filter_silences_successful_health_and_chat() -> None:
     assert access_filter.filter(_access_record("POST", "/chat", 500)) is True
 
 
+def test_configure_application_logging_enables_services_info(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BRAIN_LOG_LEVEL", "INFO")
+    services_logger = logging.getLogger("services")
+    old_level = services_logger.level
+    try:
+        services_logger.setLevel(logging.WARNING)
+        configure_application_logging()
+        assert services_logger.level == logging.INFO
+        assert services_logger.propagate is True
+    finally:
+        services_logger.setLevel(old_level)
+
+
 def test_no_module_services_plain_text_silent_and_echo_still_works() -> None:
     plain_response = client.post("/chat", json={"text": "hello"})
 
@@ -84,6 +97,51 @@ def test_no_module_services_plain_text_silent_and_echo_still_works() -> None:
     assert echo_body["should_reply"] is True
     assert echo_body["reply"] == "runtime"
     assert echo_body["messages"] == [{"type": "text", "text": "runtime"}]
+
+
+def test_chat_logs_silent_route_outcome(caplog: pytest.LogCaptureFixture) -> None:
+    caplog.set_level(logging.INFO, logger="services.chat")
+
+    response = client.post("/chat", json={"text": "hello", "message_type": "group", "group_id": "200", "user_id": "100"})
+
+    assert response.status_code == 200
+    messages = [record.getMessage() for record in caplog.records if record.name == "services.chat"]
+    assert any("Brain 收到消息" in message and "group_id=200" in message for message in messages)
+    assert any("Brain 路由结果: stage=no_route" in message and "reason=no_route" in message for message in messages)
+    assert any("Brain 完成处理: handled=False should_reply=False" in message for message in messages)
+
+
+def test_chat_logs_memory_route_outcome(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
+    class FakeStore:
+        enabled = True
+
+        def count_active(self, group_id: str) -> int:
+            return 0
+
+        def group_memory_enabled(self, group_id: str) -> bool:
+            return True
+
+    monkeypatch.setattr("services.memory.PostgresMemoryStore.from_env", staticmethod(lambda: FakeStore()))
+    caplog.set_level(logging.INFO, logger="services.chat")
+
+    response = client.post(
+        "/chat",
+        json={
+            "text": "/memory status",
+            "message_type": "group",
+            "group_id": "200",
+            "user_id": "100",
+            "sender": {"user_id": "100", "role": "admin"},
+        },
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["handled"] is True
+    assert body["should_reply"] is True
+    messages = [record.getMessage() for record in caplog.records if record.name == "services.chat"]
+    assert any("Brain 路由结果: stage=memory" in message and "command=status" in message for message in messages)
+    assert any("Brain 完成处理: handled=True should_reply=True module=memory command=status" in message for message in messages)
 
 
 def test_chat_accepts_normalized_message_envelope() -> None:

@@ -162,6 +162,13 @@ Memory recall is controlled by:
 ```text
 MEMORY_ENABLED=true
 MEMORY_ADMIN_USER_IDS=
+MEMORY_EXTRACTOR_ENABLED=false
+MEMORY_EXTRACTOR_BASE_URL=
+MEMORY_EXTRACTOR_API_KEY=
+MEMORY_EXTRACTOR_MODEL=
+MEMORY_EXTRACTOR_TIMEOUT=30
+MEMORY_EXTRACTOR_BATCH_SIZE=80
+MEMORY_EXTRACTOR_MAX_CANDIDATES=12
 ```
 
 `MEMORY_ADMIN_USER_IDS` is a comma, semicolon, or whitespace separated list of
@@ -172,6 +179,7 @@ QQ user IDs that may manage memory even if NapCat sender role is not
 /memory status
 /memory search <keyword>
 /memory user <QQ>
+/memory extract [count]
 /memory forget <id>
 /memory forget-user <QQ>
 /memory forget-group
@@ -183,6 +191,14 @@ QQ user IDs that may manage memory even if NapCat sender role is not
 group; deleted memories are soft-deleted. The intended retention policy is raw
 message history for 30 days and long-term memory until an admin forget command
 removes it.
+
+`/memory extract` is the manual Memory Extractor MVP. It immediately replies
+that extraction has started, then runs the OpenAI-compatible extraction in a
+background worker and sends completion/failure back through Brain outbox. The
+worker reads recent text messages for the current group, validates
+evidence-backed candidates, records the run in `memory_runs`, and inserts or
+updates `memory_items`. Explicit counts are clamped to the supported command
+range of 10-200, for example `/memory extract 100`.
 
 ### OpenAI-Compatible AI Chat
 
@@ -270,7 +286,7 @@ Weather, Pixiv, renderer, and media service as host processes:
 ./scripts/start-local-systemd.sh
 ```
 
-中文说明见 [docs/local-systemd.zh-CN.md](docs/local-systemd.zh-CN.md)。
+中文说明见 [docs/deployment/local-systemd.zh-CN.md](docs/deployment/local-systemd.zh-CN.md)。
 
 `scripts/start-all.sh` is the low-resource production entrypoint and is
 equivalent to `scripts/start-local-systemd.sh`:
@@ -464,9 +480,9 @@ python3 -m pytest
 
 ## Documentation
 
-See [docs/deployment.md](docs/deployment.md) for detailed deployment,
+See [docs/deployment/deployment.md](docs/deployment/deployment.md) for detailed deployment,
 module-service, and renderer setup.
 
-中文版本见 [docs/deployment.zh-CN.md](docs/deployment.zh-CN.md)。
+中文版本见 [docs/deployment/deployment.zh-CN.md](docs/deployment/deployment.zh-CN.md)。
 
-See [docs/roadmap.md](docs/roadmap.md) for the current roadmap.
+See [docs/overview/roadmap.md](docs/overview/roadmap.md) for the current roadmap.
