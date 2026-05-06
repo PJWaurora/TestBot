@@ -13,6 +13,21 @@ except ImportError:  # pragma: no cover - local env loading is optional in tests
 if load_dotenv is not None:
     load_dotenv(Path(__file__).with_name(".env"))
 
+
+def configure_application_logging() -> None:
+    level_name = os.getenv("BRAIN_LOG_LEVEL", "INFO").strip().upper()
+    level = getattr(logging, level_name, logging.INFO)
+    root_logger = logging.getLogger()
+    root_logger.setLevel(min(root_logger.level or level, level))
+
+    for logger_name in ("services", "modules"):
+        app_logger = logging.getLogger(logger_name)
+        app_logger.setLevel(level)
+        app_logger.propagate = True
+
+
+configure_application_logging()
+
 from schemas import (
     BrainResponse,
     ChatRequest,

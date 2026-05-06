@@ -3,8 +3,10 @@ package handler
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -124,23 +126,58 @@ func DispatchBrain(message normalizer.IncomingMessage) ([]napcat.Action, bool) {
 
 	response, err := client.PostMessage(ctx, message)
 	if err != nil {
-		log.Printf("Brain 请求失败，跳过回复: %v", err)
+		log.Printf(
+			"Brain 请求失败: type=%s message_type=%s user_id=%d group_id=%d timeout=%s err=%v",
+			message.PrimaryType(),
+			message.MessageType,
+			message.UserID,
+			message.GroupID,
+			timeout,
+			err,
+		)
 		return nil, true
 	}
 	if response == nil || !response.Handled {
+		log.Printf(
+			"Brain 未命中: type=%s message_type=%s user_id=%d group_id=%d metadata=%s",
+			message.PrimaryType(),
+			message.MessageType,
+			message.UserID,
+			message.GroupID,
+			formatBrainMetadata(responseMetadata(response)),
+		)
 		return nil, true
 	}
 	if !response.ShouldReply {
+		log.Printf(
+			"Brain 已处理但静默: type=%s message_type=%s user_id=%d group_id=%d job_id=%s metadata=%s",
+			message.PrimaryType(),
+			message.MessageType,
+			message.UserID,
+			message.GroupID,
+			response.JobID,
+			formatBrainMetadata(response.Metadata),
+		)
 		return nil, true
 	}
 
 	actions := BrainResponseActions(message, response)
 	if len(actions) == 0 {
-		log.Printf("Brain 已处理但未生成可发送 action")
+		log.Printf(
+			"Brain 已处理但未生成可发送 action: type=%s message_type=%s user_id=%d group_id=%d messages=%d reply_len=%d job_id=%s metadata=%s",
+			message.PrimaryType(),
+			message.MessageType,
+			message.UserID,
+			message.GroupID,
+			len(response.Messages),
+			len(response.Reply),
+			response.JobID,
+			formatBrainMetadata(response.Metadata),
+		)
 		return nil, true
 	}
 	log.Printf(
-		"Brain 触发回复: type=%s message_type=%s user_id=%d group_id=%d actions=%d messages=%d reply_len=%d",
+		"Brain 触发回复: type=%s message_type=%s user_id=%d group_id=%d actions=%d messages=%d reply_len=%d job_id=%s metadata=%s",
 		message.PrimaryType(),
 		message.MessageType,
 		message.UserID,
@@ -148,8 +185,50 @@ func DispatchBrain(message normalizer.IncomingMessage) ([]napcat.Action, bool) {
 		len(actions),
 		len(response.Messages),
 		len(response.Reply),
+		response.JobID,
+		formatBrainMetadata(response.Metadata),
 	)
 	return actions, true
+}
+
+func responseMetadata(response *brain.Response) brain.Metadata {
+	if response == nil {
+		return nil
+	}
+	return response.Metadata
+}
+
+func formatBrainMetadata(metadata brain.Metadata) string {
+	if len(metadata) == 0 {
+		return "{}"
+	}
+
+	keys := make([]string, 0, len(metadata))
+	for key := range metadata {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+
+	parts := make([]string, 0, len(keys))
+	for _, key := range keys {
+		parts = append(parts, key+"="+formatMetadataValue(metadata[key]))
+	}
+	return "{" + strings.Join(parts, " ") + "}"
+}
+
+func formatMetadataValue(value interface{}) string {
+	switch typed := value.(type) {
+	case nil:
+		return ""
+	case string:
+		return typed
+	case float64:
+		return strconv.FormatFloat(typed, 'f', -1, 64)
+	case bool:
+		return strconv.FormatBool(typed)
+	default:
+		return fmt.Sprint(typed)
+	}
 }
 
 func brainRequestTimeout() time.Duration {
