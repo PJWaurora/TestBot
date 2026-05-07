@@ -39,6 +39,7 @@
 | [Gateway API HTML](api/gateway-api.html) | Gateway API 的 HTML 版本。 |
 | [Brain API](api/brain-api.md) | Brain FastAPI 路由、`/chat`、工具聚合、outbox、持久化、记忆、AI runtime。 |
 | [AI Runtime API](api/ai-runtime-api.md) | AI 触发、OpenAI-compatible 请求、memory context、环境变量和错误行为。 |
+| [AI 模块使用指南](api/ai-module-usage.zh-CN.md) | 中文使用指南：如何启用 AI、如何触发、如何接入 memory、如何调试和后续维护。 |
 | [Memory Lifecycle API](api/memory-api.md) | Memory 记录结构、生命周期状态、管理/调试命令、extractor JSON 和 scoring。 |
 | [Module Service API](api/module-service-api.md) | 外部模块统一实现的 `/manifest`、`/handle`、`/tools`、`/tools/call` 合约。 |
 | [Database Schema](api/database-schema.md) | PostgreSQL migrations、消息表、响应审计表、outbox、memory、pgvector。 |
@@ -74,7 +75,7 @@
 | 理解消息从 QQ 到回复的完整链路 | [Gateway API](api/gateway-api.md)、[Brain API](api/brain-api.md)、[API 文档总览](api/index.md) |
 | 写一个新外部模块 | [Module Service API](api/module-service-api.md)、任意一个功能模块 API |
 | 改 Brain 路由或工具调用 | [Brain API](api/brain-api.md) |
-| 配置或调试 AI 回复 | [AI Runtime API](api/ai-runtime-api.md)、[AI 与记忆整体设计计划](overview/ai-memory-plan.zh-CN.md) |
+| 配置或调试 AI 回复 | [AI 模块使用指南](api/ai-module-usage.zh-CN.md)、[AI Runtime API](api/ai-runtime-api.md)、[AI 与记忆整体设计计划](overview/ai-memory-plan.zh-CN.md) |
 | 规划认知型 Agent 阶段 | [Cognitive Agent 分阶段设计](development/cognitive-agent-phases.zh-CN.md)、[认知型群聊 Agent 架构愿景](development/TestBot_Cognitive_Agent_Architecture_zh_CN.md) |
 | 调试或扩展 memory lifecycle | [Memory Lifecycle API](api/memory-api.md)、[Memory Quality Phase 1 实施规格](development/memory-quality-phase1.zh-CN.md) |
 | 实现 hybrid recall / embedding recall | [Hybrid Recall Phase 2 实施规格](development/hybrid-recall-phase2.zh-CN.md)、[Memory Lifecycle API](api/memory-api.md) |
