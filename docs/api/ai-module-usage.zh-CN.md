@@ -236,6 +236,23 @@ lifecycle_status IN (confirmed, reinforced)
 
 如果 Phase 2 vector recall 已启用，memory service 会把 keyword、FTS、embedding candidates 合并后 rerank。AI runtime 本身不直接调用 embedding endpoint，只消费 memory service 返回的最终 context。
 
+## 7.1 AI 如何使用 conversation state
+
+Phase 3 启用后，Brain 会从 `conversation_states` 读取当前会话的短期状态，并把它放进同一个“非指令上下文”。
+
+状态可能包含：
+
+| 字段 | 含义 |
+| --- | --- |
+| `conversation_velocity` | 当前聊天速度：`quiet`、`normal`、`active`、`burst`。 |
+| `active_topics` | 最近消息中的轻量话题关键词。 |
+| `current_speaker_ids` | 最近参与发言的人。 |
+| `bot_reply_count_1h` | 最近 1 小时 bot 回复次数。 |
+| `bot_reply_count_24h` | 最近 24 小时 bot 回复次数。 |
+| `should_avoid_long_reply` | 是否建议 AI 优先短回复。 |
+
+如果 state 不存在或读取失败，AI 会继续回复，只是不带这段短期状态。
+
 ## 8. 常见配置组合
 
 ### 8.1 只允许命令触发

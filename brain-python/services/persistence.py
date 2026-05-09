@@ -3,6 +3,7 @@ import os
 from typing import Any
 
 from schemas import BrainResponse, ChatRequest
+from services import conversation_state
 
 
 logger = logging.getLogger(__name__)
@@ -116,7 +117,9 @@ class PostgresChatStore:
         )
         if not rows:
             return None
-        return int(rows[0]["id"])
+        message_id = int(rows[0]["id"])
+        conversation_state.safe_update_from_message(message_id)
+        return message_id
 
     def persist_response(self, message_id: int | None, response: BrainResponse) -> None:
         if not self.enabled or message_id is None:
@@ -144,6 +147,7 @@ class PostgresChatStore:
                 _metadata_value(response, "prompt_version"),
             ),
         )
+        conversation_state.safe_update_from_bot_response(message_id, response)
 
     def _fetch_all(self, sql: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
         try:

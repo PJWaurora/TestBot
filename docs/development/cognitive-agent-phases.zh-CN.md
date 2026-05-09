@@ -2,7 +2,7 @@
 
 > Language: zh-CN  
 > Purpose: 把认知型 Agent 愿景拆成可推进阶段。  
-> Status: Phase 1 和 Phase 2 已完成首版实现；Phase 3-8 是阶段级设计，进入实现前再展开成工程规格。
+> Status: Phase 1、Phase 2、Phase 3 已完成首版实现；Phase 4-8 是阶段级设计，进入实现前再展开成工程规格。
 
 ---
 
@@ -33,6 +33,7 @@ Phase 8  Proactive AI
 
 - [Memory Quality Phase 1](memory-quality-phase1.zh-CN.md)
 - [Hybrid Recall Phase 2](hybrid-recall-phase2.zh-CN.md)
+- [Conversation State Phase 3](conversation-state-phase3.zh-CN.md)
 - [Memory Lifecycle API](../api/memory-api.md)
 
 架构愿景：
@@ -134,6 +135,13 @@ Compress
 ---
 
 ## Phase 3: Conversation State
+
+> Implementation spec: [Conversation State Phase 3 实施规格](conversation-state-phase3.zh-CN.md)
+
+状态：
+
+- 首版实现已落地。
+- 后续应把 state 接入 Phase 4 Prompt Compiler，避免 AI runtime 继续膨胀。
 
 目标：
 

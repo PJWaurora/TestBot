@@ -143,6 +143,52 @@ def test_ai_command_calls_openai_compatible_chat_with_memory_context(monkeypatch
     assert "PJW: 今天想看图片" in context_message
 
 
+def test_ai_command_includes_conversation_state_context(monkeypatch: pytest.MonkeyPatch) -> None:
+    calls: list[dict[str, Any]] = []
+    request = ChatRequest(text="/ai 总结一下", message_type="group", group_id="1", user_id="2")
+
+    monkeypatch.setenv("AI_ENABLED", "true")
+    monkeypatch.setenv("AI_BASE_URL", "https://llm.example/v1")
+    monkeypatch.setenv("AI_MODEL", "test-model")
+    monkeypatch.setattr(ai_runtime.memory_service, "recall_context", lambda request, text: {"memories": [], "recent_messages": []})
+    monkeypatch.setattr(
+        ai_runtime.conversation_state,
+        "safe_read_for_request",
+        lambda request: ai_runtime.conversation_state.ConversationState(
+            conversation_id=9,
+            active_topics=["pixiv", "天气"],
+            conversation_velocity="burst",
+            current_speaker_ids=["u1", "u2", "u3", "u4"],
+            bot_reply_count_1h=3,
+            bot_reply_count_24h=8,
+            should_avoid_long_reply=True,
+        ),
+    )
+
+    def fake_post(url: str, json: dict[str, Any], headers: dict[str, str], timeout: float) -> FakeResponse:
+        calls.append({"url": url, "json": json, "headers": headers, "timeout": timeout})
+        return FakeResponse({"choices": [{"message": {"content": "短总结。"}}]})
+
+    monkeypatch.setattr(ai_runtime.httpx, "post", fake_post)
+
+    response = ai_runtime.build_ai_response(
+        request,
+        "/ai 总结一下",
+        ModuleContext(group_id="1", user_id="2", message_type="group"),
+    )
+
+    assert response is not None
+    assert response.reply == "短总结。"
+    assert response.metadata is not None
+    assert response.metadata["prompt_version"] == "ai-memory-state-v1"
+    context_message = calls[0]["json"]["messages"][1]["content"]
+    assert "当前群聊状态：" in context_message
+    assert "- velocity: burst" in context_message
+    assert "- active_topics: pixiv, 天气" in context_message
+    assert "- should_avoid_long_reply: true" in context_message
+    assert "优先短回复" in context_message
+
+
 def test_custom_ai_command_alias_is_supported(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AI_ENABLED", "true")
     monkeypatch.setenv("AI_BASE_URL", "https://llm.example")

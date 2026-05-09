@@ -29,6 +29,7 @@
 | [Cognitive Agent 分阶段设计](development/cognitive-agent-phases.zh-CN.md) | Phase 1-8 的阶段边界、依赖、非目标和验收口径。 |
 | [Memory Quality Phase 1 实施规格](development/memory-quality-phase1.zh-CN.md) | 已实现 Phase 1 memory lifecycle/quality 的工程规格、状态机、迁移、命令/API 和测试计划。 |
 | [Hybrid Recall Phase 2 实施规格](development/hybrid-recall-phase2.zh-CN.md) | 已实现 Phase 2 hybrid recall 的 embedding 写入、向量召回、候选合并、rerank、debug 和 rollout 计划。 |
+| [Conversation State Phase 3 实施规格](development/conversation-state-phase3.zh-CN.md) | Phase 3 conversation state 的短期状态表、更新路径、AI prompt 集成和降级策略。 |
 
 ## 核心服务 API
 

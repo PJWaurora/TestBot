@@ -16,6 +16,7 @@ memory embeddings.
 | `000004_memory` | Creates memory items, memory embeddings, extraction runs, and memory settings. |
 | `000005_memory_lifecycle` | Adds memory class, lifecycle state, quality scoring fields, and lifecycle recall/debug indexes. |
 | `000006_memory_embedding_recall` | Adds embedding freshness metadata, embedding uniqueness, and vector recall index. |
+| `000007_conversation_state` | Adds short-term conversation state for AI prompt context. |
 
 ## Extension
 
@@ -122,6 +123,31 @@ Indexes:
 | Name | Columns |
 | --- | --- |
 | `bot_responses_message_id_idx` | `message_id` |
+
+## `conversation_states`
+
+Stores short-term, derived state for one conversation. This is not long-term
+memory; it is a compact operational summary used by AI prompt context.
+
+| Column | Type | Notes |
+| --- | --- | --- |
+| `conversation_id` | `BIGINT` | Primary key, references `conversations(id)` with cascade delete. |
+| `active_topics` | `JSONB` | Bounded topic keywords derived from recent messages. |
+| `mood` | `TEXT` | Rule-based mood bucket: `neutral`, `positive`, `tense`, or `unclear`. Current implementation defaults to `neutral`. |
+| `conversation_velocity` | `TEXT` | Message rate bucket: `quiet`, `normal`, `active`, or `burst`. |
+| `current_speaker_ids` | `JSONB` | Bounded list of recent speaker IDs. |
+| `last_bot_reply_at` | `TIMESTAMPTZ` | Most recent persisted bot reply time for the conversation. |
+| `bot_reply_count_1h` | `INTEGER` | Recent bot replies in the last hour. |
+| `bot_reply_count_24h` | `INTEGER` | Recent bot replies in the last 24 hours. |
+| `should_avoid_long_reply` | `BOOLEAN` | True when AI should prefer short replies because the chat is fast, crowded, or bot replied recently. |
+| `metadata` | `JSONB` | Derivation metadata such as message counts and windows. |
+| `updated_at` | `TIMESTAMPTZ` | Last state refresh time. |
+
+Indexes:
+
+| Name | Columns |
+| --- | --- |
+| `conversation_states_updated_at_idx` | `updated_at DESC` |
 
 ## `message_outbox`
 

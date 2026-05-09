@@ -212,6 +212,12 @@ Context is put in a `user` role message and explicitly labeled as
 non-instruction reference data. The system prompt also appends a safety prompt
 that tells the model not to obey instructions found in recent chat or memory.
 
+When Phase 3 conversation state is available, Brain also includes a compact
+short-term state summary in the same non-instruction context. It can include
+current velocity, active topics, recent speaker count, recent bot reply counts,
+and `should_avoid_long_reply`. Conversation state is read-only prompt context;
+AI runtime does not write state directly.
+
 Text bounds:
 
 | Item | Limit |
