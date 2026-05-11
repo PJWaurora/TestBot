@@ -201,11 +201,22 @@ memory lifecycle/admin/debug contract, see [Memory Lifecycle API](memory-api.md)
 During rollout, `MEMORY_RECALL_LIFECYCLE_FILTER_ENABLED=false` temporarily
 loosens recall to active, non-archived lifecycle rows.
 
+When Phase 2 vector recall is enabled, `recall_context()` can combine keyword,
+FTS, and embedding candidates before reranking. AI runtime does not call the
+embedding endpoint directly; it only consumes the final memory context returned
+by the memory service.
+
 If recall fails, Brain logs the failure and continues with empty memory context.
 
 Context is put in a `user` role message and explicitly labeled as
 non-instruction reference data. The system prompt also appends a safety prompt
 that tells the model not to obey instructions found in recent chat or memory.
+
+When Phase 3 conversation state is available, Brain also includes a compact
+short-term state summary in the same non-instruction context. It can include
+current velocity, active topics, recent speaker count, recent bot reply counts,
+and `should_avoid_long_reply`. Conversation state is read-only prompt context;
+AI runtime does not write state directly.
 
 Text bounds:
 

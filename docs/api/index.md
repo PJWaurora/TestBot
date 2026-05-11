@@ -14,9 +14,10 @@ For the full categorized documentation directory, see
 | [Gateway API](gateway-api.md) | NapCat WebSocket endpoint, normalized message routing, Brain response conversion, and outbox polling. |
 | [Brain API](brain-api.md) | Brain FastAPI routes, `ChatRequest`, `BrainResponse`, tool aggregation, outbox, persistence, memory, and AI runtime. |
 | [AI Runtime API](ai-runtime-api.md) | Brain AI trigger contract, OpenAI-compatible upstream request, memory context, env vars, and error behavior. |
+| [AI 模块使用指南](ai-module-usage.zh-CN.md) | 面向使用和运维的中文指南：启用 AI、触发方式、memory context、错误行为和未来更新位置。 |
 | [Memory Lifecycle API](memory-api.md) | Brain memory records, lifecycle states, admin/debug commands, extractor candidate JSON, and scoring. |
 | [Module Service API](module-service-api.md) | Shared HTTP contract implemented by external modules: `/manifest`, `/handle`, `/tools`, and `/tools/call`. |
-| [Database Schema](database-schema.md) | SQL migrations for conversations, messages, bot responses, outbox, memory, and pgvector. |
+| [Database Schema](database-schema.md) | SQL migrations for conversations, messages, bot responses, conversation state, outbox, memory, and pgvector. |
 
 ## External Modules And Services
 

@@ -7,6 +7,9 @@ golang-migrate naming convention:
 2. `000002_core_chat_tables.up.sql`
 3. `000003_message_outbox.up.sql`
 4. `000004_memory.up.sql`
+5. `000005_memory_lifecycle.up.sql`
+6. `000006_memory_embedding_recall.up.sql`
+7. `000007_conversation_state.up.sql`
 
 Run migrations in numeric order. Rollbacks should use the matching `.down.sql`
 files in reverse numeric order.
@@ -20,11 +23,17 @@ psql "$DATABASE_URL" -f database/migrations/000001_enable_pgvector.up.sql
 psql "$DATABASE_URL" -f database/migrations/000002_core_chat_tables.up.sql
 psql "$DATABASE_URL" -f database/migrations/000003_message_outbox.up.sql
 psql "$DATABASE_URL" -f database/migrations/000004_memory.up.sql
+psql "$DATABASE_URL" -f database/migrations/000005_memory_lifecycle.up.sql
+psql "$DATABASE_URL" -f database/migrations/000006_memory_embedding_recall.up.sql
+psql "$DATABASE_URL" -f database/migrations/000007_conversation_state.up.sql
 ```
 
 To roll back the initial schema:
 
 ```sh
+psql "$DATABASE_URL" -f database/migrations/000007_conversation_state.down.sql
+psql "$DATABASE_URL" -f database/migrations/000006_memory_embedding_recall.down.sql
+psql "$DATABASE_URL" -f database/migrations/000005_memory_lifecycle.down.sql
 psql "$DATABASE_URL" -f database/migrations/000004_memory.down.sql
 psql "$DATABASE_URL" -f database/migrations/000003_message_outbox.down.sql
 psql "$DATABASE_URL" -f database/migrations/000002_core_chat_tables.down.sql
@@ -79,3 +88,15 @@ Migration `000004_memory` adds the first memory schema:
 Memory deletes are soft deletes via `status='deleted'`. The intended production
 policy is raw chat history for 30 days and long-term memory until an admin
 forget command removes it.
+
+Migration `000005_memory_lifecycle` adds lifecycle and quality fields used by
+AI memory recall, including `memory_class`, `lifecycle_status`, `stability`,
+`decay_score`, `source_count`, and `quality_score`.
+
+Migration `000006_memory_embedding_recall` adds embedding freshness metadata,
+the `(memory_id, embedding_model)` uniqueness rule, and the pgvector recall
+index used by hybrid memory recall.
+
+Migration `000007_conversation_state` adds one short-term state row per
+conversation. Brain uses it to summarize active topics, current speakers,
+message velocity, recent bot replies, and whether AI should avoid long replies.

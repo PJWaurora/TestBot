@@ -37,6 +37,11 @@ class FakeMemoryStore:
         self.deleted_users: list[tuple[str, str]] = []
         self.deleted_groups: list[str] = []
         self.get_calls: list[tuple[int, str, bool]] = []
+        self.embedding_status_calls: list[tuple[str, str]] = []
+        self.embedding_index_calls: list[tuple[str, int, str]] = []
+        self.upserted_embeddings: list[tuple[int, str, str, list[float]]] = []
+        self.embedding_count = 4
+        self.embedding_missing = 2
         self.lifecycle_actions: list[tuple[str, Any]] = []
         self.lifecycle_counts_result = {
             "weak": 1,
@@ -151,10 +156,13 @@ class FakeMemoryStore:
                 memory.MemoryScore(
                     total=0.81,
                     keyword_match=1.0,
+                    fts_rank=0.4,
+                    vector_similarity=0.7,
                     entity_relevance=0.9,
                     scope_relevance=0.75,
                     quality_score=0.5,
                     recency_weight=0.5,
+                    sources=("keyword", "vector"),
                 ),
             )
         ]
@@ -171,6 +179,34 @@ class FakeMemoryStore:
         self.deleted_groups.append(group_id)
         return 5
 
+    def count_memory_embeddings(self, *, model: str = "") -> int:
+        self.embedding_status_calls.append(("indexed", model))
+        return self.embedding_count
+
+    def count_memories_missing_embeddings(self, *, model: str, group_id: str = "") -> int:
+        self.embedding_status_calls.append((group_id, model))
+        return self.embedding_missing
+
+    def list_memories_missing_embeddings(
+        self,
+        *,
+        model: str,
+        limit: int,
+        group_id: str = "",
+    ) -> list[MemoryRecord]:
+        self.embedding_index_calls.append((group_id, limit, model))
+        return self.records[:limit]
+
+    def upsert_memory_embedding(
+        self,
+        memory_id: int,
+        *,
+        model: str,
+        content_hash: str,
+        embedding: list[float],
+    ) -> None:
+        self.upserted_embeddings.append((memory_id, model, content_hash, embedding))
+
 
 @pytest.fixture(autouse=True)
 def clear_memory_env(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -178,6 +214,10 @@ def clear_memory_env(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("MEMORY_ENABLED", raising=False)
     monkeypatch.delenv("MEMORY_RECALL_LIFECYCLE_FILTER_ENABLED", raising=False)
     monkeypatch.delenv("MEMORY_EXTRACTOR_ENABLED", raising=False)
+    monkeypatch.delenv("MEMORY_VECTOR_RECALL_ENABLED", raising=False)
+    monkeypatch.delenv("MEMORY_KEYWORD_RECALL_LIMIT", raising=False)
+    monkeypatch.delenv("MEMORY_VECTOR_RECALL_LIMIT", raising=False)
+    monkeypatch.delenv("MEMORY_EMBEDDING_BATCH_SIZE", raising=False)
 
 
 def test_handle_memory_command_ignores_non_memory_text() -> None:
@@ -523,6 +563,67 @@ def test_postgres_recall_filters_ineligible_lifecycle_records(monkeypatch: pytes
     assert [record.id for record in recalled] == [2]
 
 
+def test_postgres_recall_falls_back_when_vector_embedding_fails(monkeypatch: pytest.MonkeyPatch) -> None:
+    store = memory.PostgresMemoryStore("postgres://example")
+    rows = [_memory_row(2, lifecycle_status="confirmed", content="用户不喜欢长篇回复。")]
+    calls: list[str] = []
+
+    class BrokenEmbeddingModule:
+        @staticmethod
+        def config_from_env() -> dict[str, Any]:
+            return {"enabled": True, "model": "embed-test"}
+
+        @staticmethod
+        def embed_texts(texts: list[str], config: Any) -> list[list[float]]:
+            raise RuntimeError("embedding service down")
+
+    def fake_fetch_all(sql: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
+        calls.append(sql)
+        if "FROM memory_embeddings" in sql:
+            raise AssertionError("vector SQL should not run when embedding fails")
+        return rows
+
+    monkeypatch.setenv("MEMORY_VECTOR_RECALL_ENABLED", "true")
+    monkeypatch.setattr(memory, "_memory_embedding_module", lambda: BrokenEmbeddingModule)
+    monkeypatch.setattr(store, "_fetch_all", fake_fetch_all)
+
+    recalled = store.recall(ChatRequest(text="回复风格", group_id="200", user_id="100"), "回复")
+
+    assert [record.id for record in recalled] == [2]
+    assert any("content ILIKE" in sql for sql in calls)
+
+
+def test_memory_candidate_merge_and_scoring_prefers_combined_sources() -> None:
+    request = ChatRequest(text="回复风格", group_id="200", user_id="100")
+    record = MemoryRecord(
+        id=1,
+        scope="user",
+        memory_type="preference",
+        content="用户不喜欢长篇回复。",
+        confidence=0.9,
+        importance=0.8,
+        group_id="200",
+        user_id="100",
+        quality_score=0.8,
+    )
+    merged = memory._merge_memory_candidates(
+        [
+            memory.MemoryCandidate(record=record, sources=("keyword",), keyword_match=0.5),
+            memory.MemoryCandidate(record=record, sources=("fts",), fts_rank=0.3),
+            memory.MemoryCandidate(record=record, sources=("vector",), vector_similarity=0.9),
+        ]
+    )
+
+    assert len(merged) == 1
+    assert merged[0].sources == ("keyword", "fts", "vector")
+    score = memory.memory_score(record, request, memory._keywords("回复风格"), candidate=merged[0])
+    assert score.keyword_match == 0.5
+    assert score.fts_rank == 0.3
+    assert score.vector_similarity == 0.9
+    assert score.sources == ("keyword", "fts", "vector")
+    assert score.total == 0.738
+
+
 def test_recall_lifecycle_filter_can_be_disabled_for_rollout(monkeypatch: pytest.MonkeyPatch) -> None:
     weak = MemoryRecord(
         id=1,
@@ -604,9 +705,109 @@ def test_memory_debug_recall_command_formats_score_breakdown(monkeypatch: pytest
     assert response is not None
     assert "召回调试：" in response.reply
     assert "#9 score=0.81 eligible=yes lifecycle=confirmed" in response.reply
-    assert "keyword=1.00 entity=0.90 scope=0.75 quality=0.50 recency=0.50" in response.reply
+    assert "sources=keyword,vector keyword=1.00 fts=0.40 vector=0.70" in response.reply
+    assert "entity=0.90 scope=0.75 quality=0.50 recency=0.50" in response.reply
     assert response.metadata == {"module": "memory", "command": "debug_recall", "count": 1}
     assert store.lifecycle_actions == [("debug_recall", "南京", 10, True)]
+
+
+def test_postgres_debug_recall_merges_sources(monkeypatch: pytest.MonkeyPatch) -> None:
+    store = memory.PostgresMemoryStore("postgres://example")
+    row = _memory_row(9, lifecycle_status="confirmed", content="用户不喜欢长篇回复。")
+    calls: list[str] = []
+
+    class FakeEmbeddingModule:
+        @staticmethod
+        def config_from_env() -> dict[str, Any]:
+            return {"enabled": True, "model": "embed-test"}
+
+        @staticmethod
+        def embed_texts(texts: list[str], config: Any) -> list[list[float]]:
+            return [[0.1, 0.2]]
+
+    def fake_fetch_all(sql: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
+        calls.append(sql)
+        if "ts_rank_cd" in sql:
+            return [{**row, "fts_rank": 0.2}]
+        if "FROM memory_embeddings" in sql:
+            return [{**row, "vector_similarity": 0.8}]
+        return [row]
+
+    monkeypatch.setenv("MEMORY_VECTOR_RECALL_ENABLED", "true")
+    monkeypatch.setattr(memory, "_memory_embedding_module", lambda: FakeEmbeddingModule)
+    monkeypatch.setattr(store, "_fetch_all", fake_fetch_all)
+
+    scored = store.debug_recall(ChatRequest(text="回复", group_id="200", user_id="100"), "回复", limit=5)
+
+    assert len(scored) == 1
+    _record, score = scored[0]
+    assert score.sources == ("keyword", "fts", "vector")
+    assert score.fts_rank == 0.2
+    assert score.vector_similarity == 0.8
+    assert any("to_tsvector" in sql for sql in calls)
+    assert any("memory_embeddings" in sql for sql in calls)
+
+
+def test_memory_embedding_status_command_reports_counts(monkeypatch: pytest.MonkeyPatch) -> None:
+    store = FakeMemoryStore()
+    _install_store(monkeypatch, store)
+
+    class FakeEmbeddingModule:
+        @staticmethod
+        def config_from_env() -> dict[str, Any]:
+            return {"enabled": True, "model": "embed-test"}
+
+        @staticmethod
+        def embed_texts(texts: list[str], config: Any) -> list[list[float]]:
+            return []
+
+    monkeypatch.setattr(memory, "_memory_embedding_module", lambda: FakeEmbeddingModule)
+
+    response = memory.handle_memory_command(_request(role="admin"), "/memory embedding status")
+
+    assert response is not None
+    assert response.reply == "Embedding 状态：启用，model=embed-test，indexed=4，missing=2"
+    assert response.metadata == {
+        "module": "memory",
+        "command": "embedding",
+        "action": "status",
+        "available": True,
+        "configured": True,
+        "enabled": True,
+        "model": "embed-test",
+        "indexed": 4,
+        "missing": 2,
+    }
+    assert store.embedding_status_calls == [("indexed", "embed-test"), ("200", "embed-test")]
+
+
+def test_memory_embedding_index_command_indexes_missing(monkeypatch: pytest.MonkeyPatch) -> None:
+    store = FakeMemoryStore()
+    _install_store(monkeypatch, store)
+
+    class FakeEmbeddingModule:
+        @staticmethod
+        def config_from_env() -> dict[str, Any]:
+            return {"enabled": True, "model": "embed-test"}
+
+        @staticmethod
+        def embed_texts(texts: list[str], config: Any) -> list[list[float]]:
+            assert texts == ["用户喜欢南京天气。"]
+            return [[0.1, 0.2, 0.3]]
+
+    monkeypatch.setattr(memory, "_memory_embedding_module", lambda: FakeEmbeddingModule)
+
+    response = memory.handle_memory_command(_request(role="admin"), "/memory embedding index 3")
+
+    assert response is not None
+    assert response.reply == "Embedding 索引完成：扫描 1 条，写入 1 条，失败 0 条。"
+    assert response.metadata["model"] == "embed-test"
+    assert response.metadata["indexed"] == 1
+    assert store.embedding_index_calls == [("200", 3, "embed-test")]
+    assert len(store.upserted_embeddings) == 1
+    memory_id, model, content_hash, embedding = store.upserted_embeddings[0]
+    assert (memory_id, model, embedding) == (9, "embed-test", [0.1, 0.2, 0.3])
+    assert len(content_hash) == 64
 
 
 def test_upsert_extracted_memory_marks_conflicting_memory_contradicted(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -667,6 +868,34 @@ def test_postgres_memory_store_reads_group_messages_for_extraction(monkeypatch: 
     assert "conversations.conversation_type = 'group'" in captured[0][0]
     assert "COALESCE(messages.text, '') <> ''" in captured[0][0]
     assert captured[0][1] == ("group-a", 50)
+
+
+def test_postgres_embedding_store_methods_use_memory_embedding_table(monkeypatch: pytest.MonkeyPatch) -> None:
+    store = memory.PostgresMemoryStore("postgres://example")
+    captured: list[tuple[str, tuple[Any, ...]]] = []
+
+    def fake_fetch_all(sql: str, params: tuple[Any, ...]) -> list[dict[str, Any]]:
+        captured.append((sql, params))
+        if "count(*)" in sql:
+            return [{"count": 7}]
+        if "SELECT mi.*" in sql:
+            return [_memory_row(9, lifecycle_status="confirmed", content="用户喜欢南京天气。")]
+        return [{"id": 1}]
+
+    monkeypatch.setattr(store, "_fetch_all", fake_fetch_all)
+
+    assert store.count_memory_embeddings(model="embed-test") == 7
+    assert store.count_memories_missing_embeddings(model="embed-test", group_id="200") == 7
+    assert [record.id for record in store.list_memories_missing_embeddings(model="embed-test", limit=5, group_id="200")] == [9]
+    store.upsert_memory_embedding(9, model="embed-test", content_hash="abc", embedding=[0.1, 0.2])
+
+    assert "FROM memory_embeddings WHERE embedding_model = %s" in captured[0][0]
+    assert "NOT EXISTS" in captured[1][0]
+    assert "SELECT mi.*" in captured[2][0]
+    assert "INSERT INTO memory_embeddings" in captured[3][0]
+    assert "ON CONFLICT (memory_id, embedding_model)" in captured[3][0]
+    assert "content_hash = EXCLUDED.content_hash" in captured[3][0]
+    assert captured[3][1] == (9, "[0.1,0.2]", "embed-test", "abc")
 
 
 def test_memory_command_reports_missing_database(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -60,6 +60,9 @@ services:
         psql -h postgres -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -v ON_ERROR_STOP=1 -f /migrations/000002_core_chat_tables.up.sql
         psql -h postgres -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -v ON_ERROR_STOP=1 -f /migrations/000003_message_outbox.up.sql
         psql -h postgres -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -v ON_ERROR_STOP=1 -f /migrations/000004_memory.up.sql
+        psql -h postgres -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -v ON_ERROR_STOP=1 -f /migrations/000005_memory_lifecycle.up.sql
+        psql -h postgres -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -v ON_ERROR_STOP=1 -f /migrations/000006_memory_embedding_recall.up.sql
+        psql -h postgres -U "$$POSTGRES_USER" -d "$$POSTGRES_DB" -v ON_ERROR_STOP=1 -f /migrations/000007_conversation_state.up.sql
 
   brain-python:
     profiles:

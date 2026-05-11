@@ -4,8 +4,10 @@ Sources:
 
 - `/root/TestBot/brain-python/services/memory.py`
 - `/root/TestBot/brain-python/services/memory_extractor.py`
+- `/root/TestBot/brain-python/services/memory_embedding.py`
 - `/root/TestBot/database/migrations/000004_memory.up.sql`
 - `/root/TestBot/database/migrations/000005_memory_lifecycle.up.sql`
+- `/root/TestBot/database/migrations/000006_memory_embedding_recall.up.sql`
 
 Memory is not a standalone HTTP service. It is a Brain runtime subsystem used by
 `POST /chat`, AI context assembly, admin commands, and the background extractor.
@@ -112,6 +114,8 @@ Admin authorization accepts group sender roles `admin` and `owner`, plus IDs in
 | `/memory lifecycle stale <id>` | private/group | Marks a visible row `stale`. |
 | `/memory lifecycle decay [days]` | private/group | Applies age-based decay to visible rows. |
 | `/memory debug recall <text>` | private/group | Shows recall score breakdown, including ineligible rows. |
+| `/memory embedding status` | private/group | Shows embedding config/index coverage for the current scope. |
+| `/memory embedding index [limit]` | private/group | Best-effort indexing of memories missing current-model embeddings. |
 | `/memory extract [10..200]` | group only | Starts background extraction from recent persisted group messages. |
 | `/memory forget <id>` | private/group | Marks one row deleted. |
 | `/memory forget-user <QQ>` | group only | Marks one user's rows deleted in the current group. |
@@ -157,6 +161,14 @@ Debug recall:
 ```text
 召回调试：
 #9 score=0.81 eligible=yes lifecycle=confirmed keyword=1.00 entity=0.90 scope=0.75 quality=0.50 recency=0.50 用户喜欢南京天气。
+```
+
+With Phase 2 hybrid recall enabled, debug output also includes candidate
+sources, FTS rank, and vector similarity:
+
+```text
+召回调试：
+#9 score=0.83 eligible=yes lifecycle=reinforced sources=keyword,fts,vector keyword=0.50 fts=0.31 vector=0.78 entity=0.90 scope=1.00 quality=0.74 recency=0.60 用户不喜欢长篇回复。
 ```
 
 ## Extractor Candidate API
@@ -267,6 +279,53 @@ keyword_match * 0.30
 
 Both scores are clamped to `0..1`.
 
+Hybrid recall score:
+
+```text
+keyword_match * 0.18
++ fts_rank * 0.12
++ vector_similarity * 0.25
++ entity_relevance * 0.18
++ scope_relevance * 0.12
++ quality_score * 0.10
++ recency_weight * 0.05
+```
+
+Vector recall is optional. If embedding config, upstream calls, or vector SQL
+fail, Brain logs the issue and continues with keyword/FTS candidates.
+
+## Embedding Recall
+
+Embedding recall uses an OpenAI-compatible embeddings endpoint:
+
+```text
+POST <MEMORY_EMBEDDING_BASE_URL>/v1/embeddings
+Authorization: Bearer <MEMORY_EMBEDDING_API_KEY>
+Content-Type: application/json
+```
+
+Request body:
+
+```json
+{
+  "model": "text-embedding-model",
+  "input": ["用户不喜欢长篇回复。"]
+}
+```
+
+Response body:
+
+```json
+{
+  "data": [
+    {"embedding": [0.01, 0.02]}
+  ]
+}
+```
+
+`memory_embeddings` stores one current row per `(memory_id, embedding_model)`.
+`content_hash` is used to detect memories that need re-indexing.
+
 ## Environment Variables
 
 | Variable | Default | Description |
@@ -282,6 +341,17 @@ Both scores are clamped to `0..1`.
 | `MEMORY_EXTRACTOR_TIMEOUT` | `30` | Upstream timeout seconds. |
 | `MEMORY_EXTRACTOR_BATCH_SIZE` | `80` | Default extraction message count, clamped to `10..200`. |
 | `MEMORY_EXTRACTOR_MAX_CANDIDATES` | `12` | Maximum candidates accepted per run. |
+| `MEMORY_EMBEDDING_ENABLED` | `false` | Enables embedding write/index commands. |
+| `MEMORY_EMBEDDING_BASE_URL` | empty | OpenAI-compatible embeddings endpoint root. |
+| `MEMORY_EMBEDDING_API_KEY` | empty | Optional bearer token for embeddings. |
+| `MEMORY_EMBEDDING_MODEL` | empty | Embedding model. Required when embedding is enabled. |
+| `MEMORY_EMBEDDING_DIMENSIONS` | `1536` | Expected embedding length; must match `memory_embeddings.embedding vector(1536)`. |
+| `MEMORY_EMBEDDING_TIMEOUT` | `20` | Embedding request timeout seconds. |
+| `MEMORY_EMBEDDING_BATCH_SIZE` | `32` | Batch size for manual indexing. |
+| `MEMORY_VECTOR_RECALL_ENABLED` | `false` | Enables vector candidate generation during recall. |
+| `MEMORY_VECTOR_RECALL_LIMIT` | `20` | Vector candidate limit before rerank. |
+| `MEMORY_KEYWORD_RECALL_LIMIT` | `50` | Keyword/FTS candidate limit before rerank. |
+| `MEMORY_RECALL_FINAL_LIMIT` | `8` | Final memory count returned to AI context. |
 
 ## Related Docs
 
