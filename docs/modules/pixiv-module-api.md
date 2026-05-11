@@ -200,7 +200,9 @@ Response uses top-level `node` messages. Gateway converts these into
 ```
 
 The module deduplicates rank markers and limits multi-rank forward requests to
-`MAX_FORWARD_RANKS=10`.
+`MAX_FORWARD_RANKS=10`. Forward-node artwork downloads run with bounded
+parallelism and preserve returned rank order. The same bounded parallelism is
+used for ranking-card thumbnail downloads.
 
 ### PID Detail
 
@@ -321,6 +323,7 @@ missing or expired, the route returns `404`.
 | `PIXIV_TRUST_ENV_PROXY` | `true` | Use process proxy env for Pixiv HTTP client. |
 | `PIXIV_HTTP_PROXY` | empty | Explicit proxy for Pixiv API requests. |
 | `PIXIV_AUTH_TTL_SECONDS` | `1800` | Re-auth interval. |
+| `PIXIV_DOWNLOAD_CONCURRENCY` | `4` | Bounded parallel download workers for forward artwork and ranking thumbnails. Clamped to `1-8`; set to `1` for serial downloads. |
 | `PIXIV_RESTRICTED_TAGS` | built-in list | Comma/semicolon list of blocked tags. |
 | `PIXIV_CACHE_TTL_MINUTES` | `60` | In-memory ranking/detail TTL. |
 | `PIXIV_IMAGE_CACHE_DIR` | `/tmp/testbot-pixiv-assets` | Asset cache directory. |
